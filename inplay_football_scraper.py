@@ -19,7 +19,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 
@@ -80,37 +80,70 @@ class InPlayFootballScraper:
         try:
             chrome_options = Options()
             
-            # Always run headless with stable configuration
-            chrome_options.add_argument("--headless")
+            # Docker-optimized Chrome configuration
+            chrome_options.add_argument("--headless=new")  # Use new headless mode
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-setuid-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--disable-web-security")
             chrome_options.add_argument("--disable-extensions")
+            chrome_options.add_argument("--disable-background-timer-throttling")
+            chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+            chrome_options.add_argument("--disable-renderer-backgrounding")
+            chrome_options.add_argument("--disable-features=TranslateUI")
+            chrome_options.add_argument("--disable-ipc-flooding-protection")
             chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("--single-process")  # Prevent crashes in containers
+            chrome_options.add_argument("--disable-crash-reporter")
+            chrome_options.add_argument("--disable-in-process-stack-traces")
+            chrome_options.add_argument("--disable-logging")
+            chrome_options.add_argument("--disable-dev-tools")
             chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             
-            # Setup ChromeDriver service with error handling
-            try:
-                driver_path = ChromeDriverManager().install()
-                # Fix for WebDriverManager selecting wrong file
-                if "THIRD_PARTY_NOTICES.chromedriver" in driver_path:
-                    import os
-                    correct_path = driver_path.replace("THIRD_PARTY_NOTICES.chromedriver", "chromedriver")
-                    if os.path.exists(correct_path):
-                        driver_path = correct_path
-                
-                service = Service(driver_path)
-                self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            except Exception as driver_error:
-                logger.error(f"ChromeDriverManager failed: {driver_error}")
-                # Fallback: try system chromedriver
+            # Setup ChromeDriver service with Docker-aware fallbacks
+            if self.is_production:
+                # In Docker/Railway, try system chromium-driver first
                 try:
+                    logger.info("🐳 Production environment: trying system chromium-driver")
+                    service = Service("/usr/bin/chromedriver")  # Docker path
+                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                    logger.info("✅ Using system chromium-driver")
+                except Exception as system_error:
+                    logger.warning(f"System chromium-driver failed: {system_error}")
+                    # Fallback to ChromeDriverManager
+                    try:
+                        logger.info("🔄 Falling back to ChromeDriverManager")
+                        driver_path = ChromeDriverManager().install()
+                        service = Service(driver_path)
+                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                        logger.info(f"✅ Using ChromeDriverManager: {driver_path}")
+                    except Exception as manager_error:
+                        logger.error(f"ChromeDriverManager also failed: {manager_error}")
+                        # Last resort: no service specified
+                        try:
+                            logger.info("🔄 Last resort: Chrome with default service")
+                            self.driver = webdriver.Chrome(options=chrome_options)
+                        except Exception as final_error:
+                            logger.error(f"All ChromeDriver methods failed: {final_error}")
+                            raise
+            else:
+                # Local development: use ChromeDriverManager
+                try:
+                    driver_path = ChromeDriverManager().install()
+                    # Fix for WebDriverManager selecting wrong file
+                    if "THIRD_PARTY_NOTICES.chromedriver" in driver_path:
+                        import os
+                        correct_path = driver_path.replace("THIRD_PARTY_NOTICES.chromedriver", "chromedriver")
+                        if os.path.exists(correct_path):
+                            driver_path = correct_path
+                    
+                    service = Service(driver_path)
+                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                except Exception as driver_error:
+                    logger.error(f"ChromeDriverManager failed: {driver_error}")
+                    # Fallback: try system chromedriver
                     self.driver = webdriver.Chrome(options=chrome_options)
-                except Exception as fallback_error:
-                    logger.error(f"System chromedriver also failed: {fallback_error}")
-                    raise
             
             # Set timeouts for production reliability
             timeout = 180 if self.is_production else 60
@@ -358,10 +391,33 @@ class InPlayFootballScraper:
                             row_data = {}
                             for j, (column, cell) in enumerate(zip(self.columns, cells)):
                                 try:
-                                    cell_text = cell.text.strip()
+                                    # Retry cell text extraction with stale element handling
+                                    cell_text = None
+                                    for cell_retry in range(3):
+                                        try:
+                                            cell_text = cell.text.strip()
+                                            break
+                                        except StaleElementReferenceException:
+                                            if cell_retry < 2:
+                                                logger.debug(f"🔄 Stale element in cell {j+1}, row {i+1}, retry {cell_retry + 1}")
+                                                time.sleep(0.5)
+                                                # Re-find the row and cell
+                                                current_rows = self.driver.find_elements(By.CSS_SELECTOR, "#fulltimemodelraw tbody tr")
+                                                if i < len(current_rows):
+                                                    row = current_rows[i]
+                                                    cells = row.find_elements(By.TAG_NAME, "td")
+                                                    if j < len(cells):
+                                                        cell = cells[j]
+                                                    else:
+                                                        break
+                                                else:
+                                                    break
+                                            else:
+                                                logger.warning(f"⚠️ Persistent stale element in cell {j+1}, row {i+1}")
+                                                break
                                     
                                     # Handle empty cells
-                                    if cell_text == '' or cell_text == '-':
+                                    if cell_text == '' or cell_text == '-' or cell_text is None:
                                         cell_text = None
                                     
                                     row_data[column] = cell_text
