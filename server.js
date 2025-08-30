@@ -71,6 +71,15 @@ server.listen(port, () => {
     console.log(`🚀 InPlay Football Scraper Server running on port ${port}`);
     console.log(`🕐 Started at UK time: ${getUKTime()}`);
     console.log(`🔗 Health check: http://localhost:${port}/health`);
+    
+    // Start the scheduling system AFTER server is ready
+    console.log(`🎯 InPlay Football Scraper Server initialized at ${getUKTime()}`);
+    console.log(`📋 Scheduling: CONTINUOUS (runs immediately after each completion)`);
+    console.log(`🔄 Overlap protection: Enabled`);
+    console.log(`⚡ Ready for continuous operation`);
+    
+    // Now start scheduling
+    startScheduling();
 });
 
 // Process queue handler
@@ -117,7 +126,11 @@ function runScraper() {
         
         console.log(`🏈 Starting InPlay Football scraper at ${getUKTime()}`);
         
-        const scraper = spawn('python3', ['inplay_football_scraper.py'], {
+        // Try different Python commands for Railway compatibility
+        const pythonCmd = process.env.RAILWAY_ENVIRONMENT ? 'python' : 'python3';
+        console.log(`🐍 Using Python command: ${pythonCmd}`);
+        
+        const scraper = spawn(pythonCmd, ['inplay_football_scraper.py'], {
             stdio: ['pipe', 'pipe', 'pipe'],
             env: { ...process.env }
         });
@@ -240,10 +253,4 @@ process.on('SIGINT', () => {
     });
 });
 
-// Start the scheduling system
-startScheduling();
-
-console.log(`🎯 InPlay Football Scraper Server initialized at ${getUKTime()}`);
-console.log(`📋 Scheduling: CONTINUOUS (runs immediately after each completion)`);
-console.log(`🔄 Overlap protection: Enabled`);
-console.log(`⚡ Ready for continuous operation`);
+// Scheduling system starts after server is ready (see server.listen callback above)
