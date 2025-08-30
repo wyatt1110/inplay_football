@@ -1,5 +1,5 @@
 selenium==4.15.2
-supabase==1.3.0
+supabase==2.18.1
 python-dotenv==1.0.0
 beautifulsoup4==4.12.2
 pandas==2.1.3
