@@ -82,35 +82,18 @@ class InPlayFootballScraper:
             chrome_options = Options()
             
             # Railway-optimized Chrome configuration
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
+            # EXACT Chrome configuration from working TELEGRAM_BOTS_UPLOAD service
+            chrome_options.add_argument("--headless")  # Required for Railway
+            chrome_options.add_argument("--no-sandbox")  # Required for Railway
+            chrome_options.add_argument("--disable-dev-shm-usage")  # Required for Railway
             chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--disable-extensions")
+            chrome_options.add_argument("--disable-web-security")
+            chrome_options.add_argument("--window-size=1920,1080")
             
-            # Railway memory-optimized Chrome configuration
-            chrome_options.add_argument("--disable-crash-reporter")
-            chrome_options.add_argument("--disable-in-process-stack-traces")
-            chrome_options.add_argument("--disable-logging")
-            chrome_options.add_argument("--log-level=3")
-            chrome_options.add_argument("--silent")
-            chrome_options.add_argument("--disable-background-timer-throttling")
-            chrome_options.add_argument("--disable-renderer-backgrounding")
-            chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-            
-            # Memory management for Railway limits
-            chrome_options.add_argument("--memory-pressure-off")
-            chrome_options.add_argument("--max_old_space_size=512")  # Limit memory usage
-            chrome_options.add_argument("--disable-features=TranslateUI")
-            chrome_options.add_argument("--disable-ipc-flooding-protection")
-            chrome_options.add_argument("--disable-default-apps")
-            chrome_options.add_argument("--disable-sync")
-            chrome_options.add_argument("--disable-background-networking")
-            
-            # Set Chrome binary path - EXACT copy from working build
+            # Set Chrome binary path - EXACT copy from TELEGRAM_BOTS_UPLOAD working service
             if self.is_production:
-                chrome_options.binary_location = "/usr/bin/chromium"
+                chrome_options.binary_location = "/usr/bin/chromium-browser"  # EXACT working path
                 service = Service("/usr/bin/chromedriver")
                 self.driver = webdriver.Chrome(service=service, options=chrome_options)
             else:

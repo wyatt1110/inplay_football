@@ -21,8 +21,9 @@ RUN wget -O /tmp/geckodriver.tar.gz https://github.com/mozilla/geckodriver/relea
     && chmod +x /usr/bin/geckodriver \
     && rm /tmp/geckodriver.tar.gz
 
-# Create symlink for python command
+# Create symlinks for compatibility with working TELEGRAM_BOTS service
 RUN ln -sf python3 /usr/bin/python
+RUN ln -sf /usr/bin/chromium /usr/bin/chromium-browser
 
 # Set working directory
 WORKDIR /app
