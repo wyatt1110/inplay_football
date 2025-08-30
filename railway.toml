@@ -1,0 +1,17 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "always"
+
+[env]
+NODE_ENV = "production"
+
+# Python runtime configuration
+[phases.setup]
+nixPkgs = ["python311", "pip", "chromium", "chromedriver"]
+
+[phases.install]
+cmds = ["pip install -r requirements.txt"]

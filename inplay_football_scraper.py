@@ -75,93 +75,32 @@ class InPlayFootballScraper:
         logger.info(f"InPlay Football Scraper initialized - Production: {self.is_production}")
 
     def setup_driver(self) -> None:
-        """Setup enterprise-grade Chrome WebDriver with virtual display"""
+        """Setup Chrome WebDriver - SIMPLE approach like other Railway services"""
         try:
-            logger.info("🏢 Setting up enterprise-grade Chrome WebDriver...")
+            logger.info("🔧 Setting up Chrome WebDriver...")
             
-            # Enterprise Chrome options - maximum stability
             chrome_options = Options()
             
-            # Core headless configuration
-            chrome_options.add_argument("--headless=new")
+            # Basic headless configuration
+            chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-setuid-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
-            
-            # Display and rendering
-            chrome_options.add_argument("--window-size=1920,1080")
-            chrome_options.add_argument("--start-maximized")
             chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--disable-software-rasterizer")
-            
-            # Memory and performance optimization
-            chrome_options.add_argument("--memory-pressure-off")
-            chrome_options.add_argument("--max_old_space_size=4096")
-            chrome_options.add_argument("--disable-background-timer-throttling")
-            chrome_options.add_argument("--disable-renderer-backgrounding")
-            chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-            
-            # Security and stability
-            chrome_options.add_argument("--disable-web-security")
-            chrome_options.add_argument("--disable-features=TranslateUI,BlinkGenPropertyTrees")
+            chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--disable-extensions")
-            chrome_options.add_argument("--disable-plugins")
-            chrome_options.add_argument("--disable-images")  # Faster loading
-            chrome_options.add_argument("--disable-javascript-harmony-shipping")
             
-            # Network and connectivity
-            chrome_options.add_argument("--aggressive-cache-discard")
-            chrome_options.add_argument("--disable-background-networking")
-            chrome_options.add_argument("--disable-default-apps")
-            chrome_options.add_argument("--disable-sync")
+            # Create WebDriver
+            self.driver = webdriver.Chrome(options=chrome_options)
             
-            # Crash prevention
-            chrome_options.add_argument("--disable-crash-reporter")
-            chrome_options.add_argument("--disable-in-process-stack-traces")
-            chrome_options.add_argument("--disable-logging")
-            chrome_options.add_argument("--disable-dev-tools")
-            chrome_options.add_argument("--log-level=3")
-            chrome_options.add_argument("--silent")
+            # Set timeouts
+            self.driver.implicitly_wait(10)
+            self.driver.set_page_load_timeout(60)
             
-            # User agent for stealth
-            chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            
-            # Production-specific optimizations
-            if self.is_production:
-                chrome_options.add_argument("--disable-dev-shm-usage")
-                chrome_options.add_argument("--remote-debugging-port=9222")
-                chrome_options.add_argument("--disable-features=VizDisplayCompositor")
-                
-                # Use system Chrome and ChromeDriver
-                logger.info("🐳 Production: Using system Google Chrome")
-                service = Service("/usr/bin/chromedriver")
-                chrome_options.binary_location = "/usr/bin/google-chrome"
-            else:
-                # Local development
-                logger.info("💻 Local: Using default Chrome")
-                service = Service()
-            
-            # Create WebDriver with enterprise configuration
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            
-            # Set enterprise-grade timeouts
-            timeout = 300 if self.is_production else 120  # Longer timeouts for stability
-            self.driver.implicitly_wait(15)  # Longer implicit wait
-            self.driver.set_page_load_timeout(timeout)
-            self.driver.set_script_timeout(timeout)
-            
-            # Verify driver is working
-            logger.info("🔍 Verifying WebDriver functionality...")
-            self.driver.get("data:text/html,<html><body><h1>WebDriver Test</h1></body></html>")
-            
-            logger.info("✅ Enterprise Chrome WebDriver setup complete")
-            logger.info(f"📊 Chrome version: {self.driver.capabilities.get('browserVersion', 'Unknown')}")
-            logger.info(f"🔧 ChromeDriver version: {self.driver.capabilities.get('chrome', {}).get('chromedriverVersion', 'Unknown')}")
+            logger.info("✅ Chrome WebDriver setup complete")
             
         except Exception as e:
-            logger.error(f"💥 Enterprise Chrome setup failed: {e}")
-            logger.error(f"Error type: {type(e).__name__}")
-            raise Exception(f"Enterprise Chrome WebDriver setup failed: {e}")
+            logger.error(f"❌ Chrome setup failed: {e}")
+            raise
 
     def setup_supabase(self) -> None:
         """Setup Supabase client"""
