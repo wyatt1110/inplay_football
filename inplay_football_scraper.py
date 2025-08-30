@@ -89,7 +89,7 @@ class InPlayFootballScraper:
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--disable-extensions")
             
-            # Railway-specific stability improvements
+            # Railway memory-optimized Chrome configuration
             chrome_options.add_argument("--disable-crash-reporter")
             chrome_options.add_argument("--disable-in-process-stack-traces")
             chrome_options.add_argument("--disable-logging")
@@ -98,6 +98,15 @@ class InPlayFootballScraper:
             chrome_options.add_argument("--disable-background-timer-throttling")
             chrome_options.add_argument("--disable-renderer-backgrounding")
             chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+            
+            # Memory management for Railway limits
+            chrome_options.add_argument("--memory-pressure-off")
+            chrome_options.add_argument("--max_old_space_size=512")  # Limit memory usage
+            chrome_options.add_argument("--disable-features=TranslateUI")
+            chrome_options.add_argument("--disable-ipc-flooding-protection")
+            chrome_options.add_argument("--disable-default-apps")
+            chrome_options.add_argument("--disable-sync")
+            chrome_options.add_argument("--disable-background-networking")
             
             # Set Chrome binary path - EXACT copy from working build
             if self.is_production:
@@ -345,70 +354,83 @@ class InPlayFootballScraper:
                         time.sleep(5)
                         continue
                     
-                    # Process each row
-                    for i in range(len(rows)):
-                        try:
-                            # Re-find the row to avoid stale reference
-                            current_rows = self.driver.find_elements(By.CSS_SELECTOR, "#fulltimemodelraw tbody tr")
+                    # Memory-efficient batch processing for Railway
+                    total_rows = len(rows)
+                    batch_size = 10  # Process in smaller batches to prevent crashes
+                    
+                    for batch_start in range(0, total_rows, batch_size):
+                        batch_end = min(batch_start + batch_size, total_rows)
+                        logger.info(f"🔄 Processing batch {batch_start+1}-{batch_end} of {total_rows} rows...")
+                        
+                        # Re-fetch rows for this batch to avoid stale references
+                        current_rows = self.driver.find_elements(By.CSS_SELECTOR, "#fulltimemodelraw tbody tr")
+                        
+                        for i in range(batch_start, batch_end):
                             if i >= len(current_rows):
-                                logger.warning(f"⚠️ Row {i+1} no longer available, skipping")
+                                logger.warning(f"⚠️ Row {i+1} no longer available, skipping batch")
                                 break
                             
-                            row = current_rows[i]
-                            cells = row.find_elements(By.TAG_NAME, "td")
-                            
-                            if len(cells) != len(self.columns):
-                                logger.warning(f"⚠️ Row {i+1}: Expected {len(self.columns)} columns, found {len(cells)}")
-                                continue
-                            
-                            # Extract data from each cell
-                            row_data = {}
-                            for j, (column, cell) in enumerate(zip(self.columns, cells)):
-                                try:
-                                    # Retry cell text extraction with stale element handling
-                                    cell_text = None
-                                    for cell_retry in range(3):
-                                        try:
-                                            cell_text = cell.text.strip()
-                                            break
-                                        except StaleElementReferenceException:
-                                            if cell_retry < 2:
-                                                logger.debug(f"🔄 Stale element in cell {j+1}, row {i+1}, retry {cell_retry + 1}")
-                                                time.sleep(0.5)
-                                                # Re-find the row and cell
-                                                current_rows = self.driver.find_elements(By.CSS_SELECTOR, "#fulltimemodelraw tbody tr")
-                                                if i < len(current_rows):
-                                                    row = current_rows[i]
-                                                    cells = row.find_elements(By.TAG_NAME, "td")
-                                                    if j < len(cells):
-                                                        cell = cells[j]
+                            try:
+                                row = current_rows[i]
+                                cells = row.find_elements(By.TAG_NAME, "td")
+                                
+                                if len(cells) != len(self.columns):
+                                    logger.warning(f"⚠️ Row {i+1}: Expected {len(self.columns)} columns, found {len(cells)}")
+                                    continue
+                                
+                                # Extract data from each cell
+                                row_data = {}
+                                for j, (column, cell) in enumerate(zip(self.columns, cells)):
+                                    try:
+                                        # Retry cell text extraction with stale element handling
+                                        cell_text = None
+                                        for cell_retry in range(3):
+                                            try:
+                                                cell_text = cell.text.strip()
+                                                break
+                                            except StaleElementReferenceException:
+                                                if cell_retry < 2:
+                                                    logger.debug(f"🔄 Stale element in cell {j+1}, row {i+1}, retry {cell_retry + 1}")
+                                                    time.sleep(0.5)
+                                                    # Re-find the row and cell
+                                                    current_rows = self.driver.find_elements(By.CSS_SELECTOR, "#fulltimemodelraw tbody tr")
+                                                    if i < len(current_rows):
+                                                        row = current_rows[i]
+                                                        cells = row.find_elements(By.TAG_NAME, "td")
+                                                        if j < len(cells):
+                                                            cell = cells[j]
+                                                        else:
+                                                            break
                                                     else:
                                                         break
                                                 else:
+                                                    logger.warning(f"⚠️ Persistent stale element in cell {j+1}, row {i+1}")
                                                     break
-                                            else:
-                                                logger.warning(f"⚠️ Persistent stale element in cell {j+1}, row {i+1}")
-                                                break
-                                    
-                                    # Handle empty cells
-                                    if cell_text == '' or cell_text == '-' or cell_text is None:
-                                        cell_text = None
-                                    
-                                    row_data[column] = cell_text
-                                except Exception as cell_error:
-                                    logger.warning(f"⚠️ Error reading cell {j+1} in row {i+1}: {cell_error}")
-                                    row_data[column] = None
+                                        
+                                        # Handle empty cells
+                                        if cell_text == '' or cell_text == '-' or cell_text is None:
+                                            cell_text = None
+                                        
+                                        row_data[column] = cell_text
+                                    except Exception as cell_error:
+                                        logger.warning(f"⚠️ Error reading cell {j+1} in row {i+1}: {cell_error}")
+                                        row_data[column] = None
                             
-                            scraped_data.append(row_data)
-                            
-                            # Log progress every 10 rows
-                            if (i + 1) % 10 == 0:
-                                logger.info(f"📈 Processed {i + 1} rows so far...")
-                            
-                        except Exception as row_error:
-                            logger.warning(f"⚠️ Error processing row {i+1}: {row_error}")
-                            # Continue with next row instead of failing completely
-                            continue
+                                scraped_data.append(row_data)
+                                
+                                # Log progress every 10 rows
+                                if (i + 1) % 10 == 0:
+                                    logger.info(f"📈 Processed {i + 1} rows so far...")
+                                
+                            except Exception as row_error:
+                                logger.warning(f"⚠️ Error processing row {i+1}: {row_error}")
+                                # Continue with next row instead of failing completely
+                                continue
+                        
+                        # Memory cleanup after each batch (Railway optimization)
+                        if batch_end < total_rows:
+                            logger.debug(f"🧹 Batch {batch_start+1}-{batch_end} complete, cleaning memory...")
+                            time.sleep(0.5)  # Brief pause to let Chrome recover
                     
                     # If we got data, break out of retry loop
                     if scraped_data:
