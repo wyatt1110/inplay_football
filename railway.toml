@@ -11,16 +11,15 @@ NODE_ENV = "production"
 
 # Python runtime configuration for web scraping
 [phases.setup]
-nixPkgs = ["python311", "pip", "chromium", "chromedriver"]
+nixPkgs = ["python311", "pip", "nodejs_18", "chromium", "chromedriver"]
 
 [phases.install]
 cmds = [
-    "pip install -r requirements.txt",
-    "npm install"
+    "pip install -r requirements.txt"
 ]
 
 [phases.build]
 cmds = ["echo 'Build phase complete'"]
 
 [phases.start]
-cmd = "npm start"
+cmd = "node server.js"

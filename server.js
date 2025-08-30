@@ -168,43 +168,49 @@ function runScraper() {
     });
 }
 
-// Scheduling logic
-function scheduleScraperRun() {
-    const now = Date.now();
-    const timeSinceLastRun = now - lastScraperTime;
-    const minInterval = 5 * 60 * 1000; // 5 minutes minimum between runs
+// Continuous scheduling logic - runs as soon as previous finishes
+function startContinuousScraping() {
+    console.log(`🔄 Starting continuous scraping at ${getUKTime()}`);
     
-    // Don't run if we just ran recently
-    if (timeSinceLastRun < minInterval) {
-        console.log(`⏳ Too soon since last run (${Math.floor(timeSinceLastRun / 1000)}s ago), waiting...`);
-        return;
+    async function continuousLoop() {
+        while (true) {
+            try {
+                if (!scraperRunning) {
+                    console.log(`🎯 Starting scraper run at ${getUKTime()}`);
+                    await runScraper();
+                    console.log(`✅ Scraper completed, starting next run immediately...`);
+                } else {
+                    console.log(`⏳ Scraper still running, waiting 10 seconds...`);
+                    await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+                }
+            } catch (error) {
+                console.error(`❌ Scraper error: ${error.message}`);
+                console.log(`🔄 Waiting 30 seconds before retry...`);
+                await new Promise(resolve => setTimeout(resolve, 30000)); // Wait 30 seconds on error
+            }
+        }
     }
     
-    // Don't run if already running
-    if (scraperRunning) {
-        console.log(`🔄 Scraper already running, skipping this cycle`);
-        return;
-    }
-    
-    console.log(`🎯 Scheduling scraper run at ${getUKTime()}`);
-    addTask('InPlay Football Scraper', runScraper);
+    // Start the continuous loop
+    continuousLoop().catch(error => {
+        console.error(`💥 Continuous loop crashed: ${error.message}`);
+        // Restart after 60 seconds if the loop crashes
+        setTimeout(() => {
+            console.log(`🔄 Restarting continuous loop...`);
+            startContinuousScraping();
+        }, 60000);
+    });
 }
 
-// Main scheduling loop - runs every 5 minutes
+// Main scheduling function
 function startScheduling() {
-    console.log(`🕐 Starting scheduling system at ${getUKTime()}`);
+    console.log(`🕐 Starting CONTINUOUS scheduling system at ${getUKTime()}`);
     
-    // Initial run after 30 seconds
+    // Start continuous scraping after 30 seconds
     setTimeout(() => {
-        console.log(`🚀 Initial scraper run starting...`);
-        scheduleScraperRun();
+        console.log(`🚀 Starting continuous scraper loop...`);
+        startContinuousScraping();
     }, 30000);
-    
-    // Then run every 5 minutes
-    setInterval(() => {
-        console.log(`⏰ Scheduled check at ${getUKTime()}`);
-        scheduleScraperRun();
-    }, 5 * 60 * 1000); // 5 minutes
 }
 
 // Error handling
@@ -238,6 +244,6 @@ process.on('SIGINT', () => {
 startScheduling();
 
 console.log(`🎯 InPlay Football Scraper Server initialized at ${getUKTime()}`);
-console.log(`📋 Scheduling: Every 5 minutes (minimum 5 minute gap between runs)`);
+console.log(`📋 Scheduling: CONTINUOUS (runs immediately after each completion)`);
 console.log(`🔄 Overlap protection: Enabled`);
 console.log(`⚡ Ready for continuous operation`);

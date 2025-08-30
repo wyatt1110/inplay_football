@@ -8,7 +8,7 @@ This system provides **live football match data** with:
 
 - ✅ **Full match data** (51 columns including odds, scores, analysis)
 - ✅ **Smart duplicate handling** (same team + same date = update existing)
-- ✅ **Real-time updates** every 5 minutes
+- ✅ **Continuous updates** (runs immediately after each completion)
 - ✅ **Headless operation** for cloud deployment
 - ✅ **Robust error handling** with stale element recovery
 
@@ -22,7 +22,7 @@ This system provides **live football match data** with:
 - **Logic**: Prevents overlapping runs, manages process queue
 
 #### 🏈 **Scraper** (`inplay_football_scraper.py`)  
-- **Runs**: Every 5 minutes (minimum gap between runs)
+- **Runs**: Continuously (starts immediately after previous run completes)
 - **Purpose**: Scrape latest match data and odds
 - **Logic**: UPSERT (updates existing records, creates new ones)
 
@@ -59,7 +59,7 @@ NODE_ENV=production
 This deployment uses a **continuous server approach**:
 
 - **`server.js`** runs continuously as a long-running process
-- **Internal scheduling** every 5 minutes with overlap protection
+- **Continuous scheduling** with overlap protection (runs immediately after completion)
 - **Health monitoring** at `/health` endpoint
 - **Process queue** prevents multiple scrapers running simultaneously
 - **Automatic restart** on crashes via Railway's restart policy
