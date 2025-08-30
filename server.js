@@ -7,10 +7,16 @@
  * Based on proven Backend-Scripts-OV architecture
  */
 
+console.log(`🚀 Starting InPlay Football Scraper Server...`);
+console.log(`📦 Node.js version: ${process.version}`);
+console.log(`🌍 Platform: ${process.platform}`);
+console.log(`📁 Working directory: ${process.cwd()}`);
+
 const http = require('http');
 const { spawn } = require('child_process');
 
 const port = process.env.PORT || 3000;
+console.log(`🔌 Using port: ${port}`);
 
 // Get UK time for logging
 function getUKTime() {
@@ -67,10 +73,12 @@ Uptime: ${Math.floor(process.uptime())} seconds`);
     }
 });
 
-server.listen(port, () => {
+server.listen(port, '0.0.0.0', () => {
     console.log(`🚀 InPlay Football Scraper Server running on port ${port}`);
     console.log(`🕐 Started at UK time: ${getUKTime()}`);
-    console.log(`🔗 Health check: http://localhost:${port}/health`);
+    console.log(`🔗 Health check: http://0.0.0.0:${port}/health`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🚂 Railway: ${process.env.RAILWAY_ENVIRONMENT || 'local'}`);
     
     // Start the scheduling system AFTER server is ready
     console.log(`🎯 InPlay Football Scraper Server initialized at ${getUKTime()}`);
@@ -79,11 +87,23 @@ server.listen(port, () => {
     console.log(`⚡ Ready for continuous operation`);
     
     // Now start scheduling
-    startScheduling();
+    try {
+        startScheduling();
+        console.log(`✅ Scheduling system started successfully`);
+    } catch (error) {
+        console.error(`❌ Failed to start scheduling: ${error.message}`);
+    }
+});
+
+// Handle server errors
+server.on('error', (error) => {
+    console.error(`💥 Server error: ${error.message}`);
+    console.error(error.stack);
+    process.exit(1);
 });
 
 // Process queue handler
-async function processQueue() {
+async function processTaskQueue() {
     if (isProcessing || processQueue.length === 0) return;
     
     isProcessing = true;
@@ -102,14 +122,14 @@ async function processQueue() {
     
     // Process next task if any
     if (processQueue.length > 0) {
-        setTimeout(processQueue, 1000);
+        setTimeout(processTaskQueue, 1000);
     }
 }
 
 // Add task to queue
 function addTask(name, executeFunction) {
     processQueue.push({ name, execute: executeFunction });
-    processQueue();
+    processTaskQueue();
 }
 
 // Run Python scraper
@@ -226,14 +246,16 @@ function startScheduling() {
     }, 30000);
 }
 
-// Error handling
+// Global error handlers
 process.on('uncaughtException', (error) => {
     console.error(`💥 Uncaught Exception: ${error.message}`);
     console.error(error.stack);
+    process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error(`💥 Unhandled Rejection at:`, promise, 'reason:', reason);
+    process.exit(1);
 });
 
 // Graceful shutdown
