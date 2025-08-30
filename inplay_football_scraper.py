@@ -94,7 +94,9 @@ class InPlayFootballScraper:
             chrome_options.add_argument("--disable-features=TranslateUI")
             chrome_options.add_argument("--disable-ipc-flooding-protection")
             chrome_options.add_argument("--window-size=1920,1080")
-            chrome_options.add_argument("--single-process")  # Prevent crashes in containers
+            chrome_options.add_argument("--disable-background-networking")
+            chrome_options.add_argument("--disable-default-apps")
+            chrome_options.add_argument("--disable-sync")
             chrome_options.add_argument("--disable-crash-reporter")
             chrome_options.add_argument("--disable-in-process-stack-traces")
             chrome_options.add_argument("--disable-logging")
