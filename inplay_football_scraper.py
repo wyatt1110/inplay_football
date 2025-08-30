@@ -18,10 +18,9 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.firefox.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.firefox.service import Service
 
 from supabase import create_client, Client
 
@@ -76,76 +75,50 @@ class InPlayFootballScraper:
         logger.info(f"InPlay Football Scraper initialized - Production: {self.is_production}")
 
     def setup_driver(self) -> None:
-        """Setup Chrome WebDriver with cloud-ready configuration"""
+        """Setup Firefox WebDriver with cloud-ready configuration"""
         try:
-            chrome_options = Options()
+            firefox_options = Options()
             
-            # Docker-optimized Chrome configuration
-            chrome_options.add_argument("--headless=new")  # Use new headless mode
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-setuid-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--disable-web-security")
-            chrome_options.add_argument("--disable-extensions")
-            chrome_options.add_argument("--disable-background-timer-throttling")
-            chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-            chrome_options.add_argument("--disable-renderer-backgrounding")
-            chrome_options.add_argument("--disable-features=TranslateUI")
-            chrome_options.add_argument("--disable-ipc-flooding-protection")
-            chrome_options.add_argument("--window-size=1920,1080")
-            chrome_options.add_argument("--disable-background-networking")
-            chrome_options.add_argument("--disable-default-apps")
-            chrome_options.add_argument("--disable-sync")
-            chrome_options.add_argument("--disable-crash-reporter")
-            chrome_options.add_argument("--disable-in-process-stack-traces")
-            chrome_options.add_argument("--disable-logging")
-            chrome_options.add_argument("--disable-dev-tools")
-            chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            # Docker-optimized Firefox configuration
+            firefox_options.add_argument("--headless")
+            firefox_options.add_argument("--no-sandbox")
+            firefox_options.add_argument("--disable-dev-shm-usage")
+            firefox_options.add_argument("--disable-gpu")
+            firefox_options.add_argument("--width=1920")
+            firefox_options.add_argument("--height=1080")
             
-            # Setup ChromeDriver service with Docker-aware fallbacks
+            # Set Firefox preferences for stability
+            firefox_options.set_preference("dom.webdriver.enabled", False)
+            firefox_options.set_preference("useAutomationExtension", False)
+            firefox_options.set_preference("general.useragent.override", "Mozilla/5.0 (X11; Linux x86_64; rv:91.0) Gecko/20100101 Firefox/91.0")
+            
+            # Setup GeckoDriver service
             if self.is_production:
-                # In Docker/Railway, try system chromium-driver first
+                # In Docker/Railway, use system geckodriver
                 try:
-                    logger.info("🐳 Production environment: trying system chromium-driver")
-                    service = Service("/usr/bin/chromedriver")  # Docker path
-                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                    logger.info("✅ Using system chromium-driver")
+                    logger.info("🦊 Production environment: using system geckodriver")
+                    service = Service("/usr/bin/geckodriver")
+                    self.driver = webdriver.Firefox(service=service, options=firefox_options)
+                    logger.info("✅ Using system geckodriver")
                 except Exception as system_error:
-                    logger.warning(f"System chromium-driver failed: {system_error}")
-                    # Fallback to ChromeDriverManager
+                    logger.warning(f"System geckodriver failed: {system_error}")
+                    # Fallback: no service specified
                     try:
-                        logger.info("🔄 Falling back to ChromeDriverManager")
-                        driver_path = ChromeDriverManager().install()
-                        service = Service(driver_path)
-                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                        logger.info(f"✅ Using ChromeDriverManager: {driver_path}")
-                    except Exception as manager_error:
-                        logger.error(f"ChromeDriverManager also failed: {manager_error}")
-                        # Last resort: no service specified
-                        try:
-                            logger.info("🔄 Last resort: Chrome with default service")
-                            self.driver = webdriver.Chrome(options=chrome_options)
-                        except Exception as final_error:
-                            logger.error(f"All ChromeDriver methods failed: {final_error}")
-                            raise
+                        logger.info("🔄 Fallback: Firefox with default service")
+                        self.driver = webdriver.Firefox(options=firefox_options)
+                        logger.info("✅ Using default Firefox service")
+                    except Exception as final_error:
+                        logger.error(f"All Firefox methods failed: {final_error}")
+                        raise
             else:
-                # Local development: use ChromeDriverManager
+                # Local development: use default geckodriver
                 try:
-                    driver_path = ChromeDriverManager().install()
-                    # Fix for WebDriverManager selecting wrong file
-                    if "THIRD_PARTY_NOTICES.chromedriver" in driver_path:
-                        import os
-                        correct_path = driver_path.replace("THIRD_PARTY_NOTICES.chromedriver", "chromedriver")
-                        if os.path.exists(correct_path):
-                            driver_path = correct_path
-                    
-                    service = Service(driver_path)
-                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                    logger.info("🦊 Local development: using default geckodriver")
+                    self.driver = webdriver.Firefox(options=firefox_options)
+                    logger.info("✅ Using local Firefox")
                 except Exception as driver_error:
-                    logger.error(f"ChromeDriverManager failed: {driver_error}")
-                    # Fallback: try system chromedriver
-                    self.driver = webdriver.Chrome(options=chrome_options)
+                    logger.error(f"Firefox setup failed: {driver_error}")
+                    raise
             
             # Set timeouts for production reliability
             timeout = 180 if self.is_production else 60
