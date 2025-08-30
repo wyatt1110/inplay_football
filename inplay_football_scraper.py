@@ -81,13 +81,23 @@ class InPlayFootballScraper:
             
             chrome_options = Options()
             
-            # Configuration matching working service
+            # Railway-optimized Chrome configuration
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--disable-extensions")
+            
+            # Railway-specific stability improvements
+            chrome_options.add_argument("--disable-crash-reporter")
+            chrome_options.add_argument("--disable-in-process-stack-traces")
+            chrome_options.add_argument("--disable-logging")
+            chrome_options.add_argument("--log-level=3")
+            chrome_options.add_argument("--silent")
+            chrome_options.add_argument("--disable-background-timer-throttling")
+            chrome_options.add_argument("--disable-renderer-backgrounding")
+            chrome_options.add_argument("--disable-backgrounding-occluded-windows")
             
             # Set Chrome binary path - EXACT copy from working build
             if self.is_production:
@@ -97,9 +107,10 @@ class InPlayFootballScraper:
             else:
                 self.driver = webdriver.Chrome(options=chrome_options)
             
-            # Set timeouts
-            self.driver.implicitly_wait(10)
-            self.driver.set_page_load_timeout(60)
+            # Set Railway-optimized timeouts
+            self.driver.implicitly_wait(15 if self.is_production else 10)
+            self.driver.set_page_load_timeout(120 if self.is_production else 60)
+            self.driver.set_script_timeout(60 if self.is_production else 30)
             
             logger.info("✅ Chrome WebDriver setup complete")
             
@@ -291,15 +302,27 @@ class InPlayFootballScraper:
             # Wait for table to be present and visible
             table = wait.until(EC.presence_of_element_located((By.ID, "fulltimemodelraw")))
             
-            # Additional wait for table content to load
+            # Railway-optimized table loading detection
             logger.info("⏳ Waiting for table content to load...")
-            time.sleep(10 if self.is_production else 5)
             
-            # Scroll to ensure all content is loaded
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)
-            self.driver.execute_script("window.scrollTo(0, 0);")
-            time.sleep(2)
+            # Wait for table rows to be present (better than fixed sleep)
+            try:
+                logger.info("🔍 Waiting for table rows to appear...")
+                wait.until(lambda driver: len(driver.find_elements(By.CSS_SELECTOR, "#fulltimemodelraw tbody tr")) > 0)
+                logger.info("✅ Table rows detected, waiting for content stability...")
+                
+                # Wait for content to stabilize (Railway-specific timing)
+                time.sleep(3 if self.is_production else 2)
+                
+                # Gentle scroll to trigger any lazy loading
+                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(1)
+                self.driver.execute_script("window.scrollTo(0, 0);")
+                time.sleep(1)
+                
+            except TimeoutException:
+                logger.warning("⚠️ Timeout waiting for table rows - proceeding anyway...")
+                time.sleep(5)  # Fallback wait
             
             scraped_data = []
             max_retries = 3
