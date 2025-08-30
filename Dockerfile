@@ -1,54 +1,54 @@
-# Use Node.js LTS version with Python support
-FROM node:18-alpine
+# Railway Python Selenium deployment - Research-based approach
+FROM python:3.11-slim
 
-# Install Python, Chrome, and dependencies for scraping
-RUN apk add --no-cache \
-    python3 \
-    py3-pip \
-    chromium \
-    chromium-chromedriver \
-    && ln -sf python3 /usr/bin/python
+# Install system dependencies for Chrome and Selenium
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    unzip \
+    curl \
+    xvfb \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create virtual environment and install Python dependencies
-RUN python3 -m venv /opt/venv && \
-    /opt/venv/bin/pip install --no-cache-dir --upgrade pip
+# Install Google Chrome
+RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
 
-# Add virtual environment to PATH
-ENV PATH="/opt/venv/bin:$PATH"
+# Install ChromeDriver
+RUN CHROME_DRIVER_VERSION=`curl -sS chromedriver.storage.googleapis.com/LATEST_RELEASE` \
+    && wget -O /tmp/chromedriver.zip http://chromedriver.storage.googleapis.com/$CHROME_DRIVER_VERSION/chromedriver_linux64.zip \
+    && unzip /tmp/chromedriver.zip chromedriver -d /usr/local/bin/ \
+    && rm /tmp/chromedriver.zip \
+    && chmod +x /usr/local/bin/chromedriver
 
-# Set Chrome binary path for Selenium
-ENV CHROME_BIN=/usr/bin/chromium-browser
-ENV CHROME_PATH=/usr/bin/chromium-browser
+# Install Node.js (for the server component)
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs
 
 # Set working directory
 WORKDIR /app
 
-# Create logs directory
-RUN mkdir -p logs
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy package files
+# Copy package.json and install Node dependencies
 COPY package*.json ./
-COPY requirements.txt ./
+RUN npm install --only=production
 
-# Install Python dependencies
-RUN pip install -r requirements.txt
-
-# Install Node.js dependencies
-RUN npm ci --only=production && npm cache clean --force
-
-# Copy source code
+# Copy application code
 COPY . .
 
-# Create non-root user for security
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S scraper -u 1001
+# Set environment variables for Chrome
+ENV CHROME_BIN=/usr/bin/google-chrome
+ENV CHROME_PATH=/usr/bin/google-chrome
+ENV CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
 
-# Set ownership
-RUN chown -R scraper:nodejs /app
-USER scraper
-
-# Expose port dynamically (Railway sets PORT env var)
+# Expose port
 EXPOSE $PORT
 
 # Start the application
-CMD ["npm", "start"]
+CMD ["node", "server.js"]
