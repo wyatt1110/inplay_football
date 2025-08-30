@@ -5,6 +5,7 @@ FROM node:18-slim
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
+    python3-venv \
     chromium \
     chromium-driver \
     && rm -rf /var/lib/apt/lists/*
@@ -15,12 +16,18 @@ RUN ln -sf python3 /usr/bin/python
 # Set working directory
 WORKDIR /app
 
+# Create virtual environment
+RUN python3 -m venv /opt/venv
+
+# Add virtual environment to PATH
+ENV PATH="/opt/venv/bin:$PATH"
+
 # Copy package files
 COPY package*.json ./
 COPY requirements.txt ./
 
-# Install Python dependencies
-RUN pip3 install -r requirements.txt
+# Install Python dependencies in virtual environment
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Copy source code
 COPY . .
