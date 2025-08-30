@@ -409,8 +409,8 @@ class InPlayFootballScraper:
                                     # Retry cell text extraction with stale element handling
                                     cell_text = None
                                     for cell_retry in range(3):
-                                try:
-                                    cell_text = cell.text.strip()
+                                        try:
+                                            cell_text = cell.text.strip()
                                             break
                                         except StaleElementReferenceException:
                                             if cell_retry < 2:
