@@ -18,11 +18,9 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from selenium.webdriver.chrome.options import Options as ChromeOptions
+from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
-from selenium.webdriver.firefox.service import Service as FirefoxService
-from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.service import Service
 
 from supabase import create_client, Client
 
@@ -77,99 +75,93 @@ class InPlayFootballScraper:
         logger.info(f"InPlay Football Scraper initialized - Production: {self.is_production}")
 
     def setup_driver(self) -> None:
-        """Setup WebDriver with Firefox first, Chrome fallback"""
-        driver_setup_success = False
-        
-        # Try Firefox first
+        """Setup enterprise-grade Chrome WebDriver with virtual display"""
         try:
-            logger.info("🦊 Attempting Firefox setup...")
-            firefox_options = FirefoxOptions()
+            logger.info("🏢 Setting up enterprise-grade Chrome WebDriver...")
             
-            # Docker-optimized Firefox configuration
-            firefox_options.add_argument("--headless")
-            firefox_options.add_argument("--no-sandbox")
-            firefox_options.add_argument("--disable-dev-shm-usage")
-            firefox_options.add_argument("--disable-gpu")
-            firefox_options.add_argument("--width=1920")
-            firefox_options.add_argument("--height=1080")
+            # Enterprise Chrome options - maximum stability
+            chrome_options = Options()
             
-            # Set Firefox preferences for stability
-            firefox_options.set_preference("dom.webdriver.enabled", False)
-            firefox_options.set_preference("useAutomationExtension", False)
-            firefox_options.set_preference("general.useragent.override", "Mozilla/5.0 (X11; Linux x86_64; rv:91.0) Gecko/20100101 Firefox/91.0")
+            # Core headless configuration
+            chrome_options.add_argument("--headless=new")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-setuid-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
             
-            # Try system geckodriver with timeout
+            # Display and rendering
+            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("--start-maximized")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--disable-software-rasterizer")
+            
+            # Memory and performance optimization
+            chrome_options.add_argument("--memory-pressure-off")
+            chrome_options.add_argument("--max_old_space_size=4096")
+            chrome_options.add_argument("--disable-background-timer-throttling")
+            chrome_options.add_argument("--disable-renderer-backgrounding")
+            chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+            
+            # Security and stability
+            chrome_options.add_argument("--disable-web-security")
+            chrome_options.add_argument("--disable-features=TranslateUI,BlinkGenPropertyTrees")
+            chrome_options.add_argument("--disable-extensions")
+            chrome_options.add_argument("--disable-plugins")
+            chrome_options.add_argument("--disable-images")  # Faster loading
+            chrome_options.add_argument("--disable-javascript-harmony-shipping")
+            
+            # Network and connectivity
+            chrome_options.add_argument("--aggressive-cache-discard")
+            chrome_options.add_argument("--disable-background-networking")
+            chrome_options.add_argument("--disable-default-apps")
+            chrome_options.add_argument("--disable-sync")
+            
+            # Crash prevention
+            chrome_options.add_argument("--disable-crash-reporter")
+            chrome_options.add_argument("--disable-in-process-stack-traces")
+            chrome_options.add_argument("--disable-logging")
+            chrome_options.add_argument("--disable-dev-tools")
+            chrome_options.add_argument("--log-level=3")
+            chrome_options.add_argument("--silent")
+            
+            # User agent for stealth
+            chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            
+            # Production-specific optimizations
             if self.is_production:
-                try:
-                    logger.info("🐳 Production: trying system geckodriver")
-                    service = FirefoxService("/usr/bin/geckodriver")
-                    # Add timeout to prevent hanging
-                    import signal
-                    def timeout_handler(signum, frame):
-                        raise TimeoutError("Firefox startup timeout")
-                    
-                    signal.signal(signal.SIGALRM, timeout_handler)
-                    signal.alarm(30)  # 30 second timeout
-                    
-                    self.driver = webdriver.Firefox(service=service, options=firefox_options)
-                    signal.alarm(0)  # Cancel timeout
-                    logger.info("✅ Firefox setup successful")
-                    driver_setup_success = True
-                    
-                except Exception as firefox_error:
-                    signal.alarm(0)  # Cancel timeout
-                    logger.warning(f"Firefox failed: {firefox_error}")
+                chrome_options.add_argument("--disable-dev-shm-usage")
+                chrome_options.add_argument("--remote-debugging-port=9222")
+                chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+                
+                # Use system Chrome and ChromeDriver
+                logger.info("🐳 Production: Using system Google Chrome")
+                service = Service("/usr/bin/chromedriver")
+                chrome_options.binary_location = "/usr/bin/google-chrome"
             else:
                 # Local development
-                try:
-                    self.driver = webdriver.Firefox(options=firefox_options)
-                    logger.info("✅ Local Firefox setup successful")
-                    driver_setup_success = True
-                except Exception as firefox_error:
-                    logger.warning(f"Local Firefox failed: {firefox_error}")
-                    
-        except Exception as firefox_error:
-            logger.warning(f"Firefox setup completely failed: {firefox_error}")
-        
-        # Fallback to Chrome if Firefox failed
-        if not driver_setup_success:
-            try:
-                logger.info("🔄 Firefox failed, falling back to Chrome...")
-                chrome_options = ChromeOptions()
-                
-                # Minimal Chrome configuration for stability
-                chrome_options.add_argument("--headless")
-                chrome_options.add_argument("--no-sandbox")
-                chrome_options.add_argument("--disable-dev-shm-usage")
-                chrome_options.add_argument("--disable-gpu")
-                chrome_options.add_argument("--window-size=1920,1080")
-                chrome_options.add_argument("--disable-extensions")
-                
-                if self.is_production:
-                    # Try system chrome
-                    try:
-                        self.driver = webdriver.Chrome(options=chrome_options)
-                        logger.info("✅ Chrome fallback successful")
-                        driver_setup_success = True
-                    except Exception as chrome_error:
-                        logger.error(f"Chrome fallback also failed: {chrome_error}")
-                else:
-                    self.driver = webdriver.Chrome(options=chrome_options)
-                    logger.info("✅ Local Chrome fallback successful")
-                    driver_setup_success = True
-                    
-            except Exception as chrome_error:
-                logger.error(f"Chrome fallback failed: {chrome_error}")
-        
-        if not driver_setup_success:
-            raise Exception("Both Firefox and Chrome setup failed")
+                logger.info("💻 Local: Using default Chrome")
+                service = Service()
             
-            # Set timeouts for production reliability
-            timeout = 180 if self.is_production else 60
-            self.driver.implicitly_wait(10)
+            # Create WebDriver with enterprise configuration
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            
+            # Set enterprise-grade timeouts
+            timeout = 300 if self.is_production else 120  # Longer timeouts for stability
+            self.driver.implicitly_wait(15)  # Longer implicit wait
             self.driver.set_page_load_timeout(timeout)
+            self.driver.set_script_timeout(timeout)
             
-        logger.info(f"WebDriver setup complete - Production mode: {self.is_production}")
+            # Verify driver is working
+            logger.info("🔍 Verifying WebDriver functionality...")
+            self.driver.get("data:text/html,<html><body><h1>WebDriver Test</h1></body></html>")
+            
+            logger.info("✅ Enterprise Chrome WebDriver setup complete")
+            logger.info(f"📊 Chrome version: {self.driver.capabilities.get('browserVersion', 'Unknown')}")
+            logger.info(f"🔧 ChromeDriver version: {self.driver.capabilities.get('chrome', {}).get('chromedriverVersion', 'Unknown')}")
+            
+        except Exception as e:
+            logger.error(f"💥 Enterprise Chrome setup failed: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            raise Exception(f"Enterprise Chrome WebDriver setup failed: {e}")
 
     def setup_supabase(self) -> None:
         """Setup Supabase client"""
