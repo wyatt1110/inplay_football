@@ -1,13 +1,18 @@
 # Use Node.js 18 with Python support
 FROM node:18-slim
 
-# Install Python and browsers
+# Install Python and browsers with dependencies
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     python3-venv \
     firefox-esr \
+    chromium \
+    chromium-driver \
     wget \
+    xvfb \
+    x11-utils \
+    dbus-x11 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install geckodriver for Firefox

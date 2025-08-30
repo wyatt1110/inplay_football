@@ -18,9 +18,11 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
-from selenium.webdriver.firefox.service import Service
+from selenium.webdriver.firefox.service import Service as FirefoxService
+from selenium.webdriver.chrome.service import Service as ChromeService
 
 from supabase import create_client, Client
 
@@ -75,9 +77,13 @@ class InPlayFootballScraper:
         logger.info(f"InPlay Football Scraper initialized - Production: {self.is_production}")
 
     def setup_driver(self) -> None:
-        """Setup Firefox WebDriver with cloud-ready configuration"""
+        """Setup WebDriver with Firefox first, Chrome fallback"""
+        driver_setup_success = False
+        
+        # Try Firefox first
         try:
-            firefox_options = Options()
+            logger.info("🦊 Attempting Firefox setup...")
+            firefox_options = FirefoxOptions()
             
             # Docker-optimized Firefox configuration
             firefox_options.add_argument("--headless")
@@ -92,44 +98,78 @@ class InPlayFootballScraper:
             firefox_options.set_preference("useAutomationExtension", False)
             firefox_options.set_preference("general.useragent.override", "Mozilla/5.0 (X11; Linux x86_64; rv:91.0) Gecko/20100101 Firefox/91.0")
             
-            # Setup GeckoDriver service
+            # Try system geckodriver with timeout
             if self.is_production:
-                # In Docker/Railway, use system geckodriver
                 try:
-                    logger.info("🦊 Production environment: using system geckodriver")
-                    service = Service("/usr/bin/geckodriver")
+                    logger.info("🐳 Production: trying system geckodriver")
+                    service = FirefoxService("/usr/bin/geckodriver")
+                    # Add timeout to prevent hanging
+                    import signal
+                    def timeout_handler(signum, frame):
+                        raise TimeoutError("Firefox startup timeout")
+                    
+                    signal.signal(signal.SIGALRM, timeout_handler)
+                    signal.alarm(30)  # 30 second timeout
+                    
                     self.driver = webdriver.Firefox(service=service, options=firefox_options)
-                    logger.info("✅ Using system geckodriver")
-                except Exception as system_error:
-                    logger.warning(f"System geckodriver failed: {system_error}")
-                    # Fallback: no service specified
-                    try:
-                        logger.info("🔄 Fallback: Firefox with default service")
-                        self.driver = webdriver.Firefox(options=firefox_options)
-                        logger.info("✅ Using default Firefox service")
-                    except Exception as final_error:
-                        logger.error(f"All Firefox methods failed: {final_error}")
-                        raise
+                    signal.alarm(0)  # Cancel timeout
+                    logger.info("✅ Firefox setup successful")
+                    driver_setup_success = True
+                    
+                except Exception as firefox_error:
+                    signal.alarm(0)  # Cancel timeout
+                    logger.warning(f"Firefox failed: {firefox_error}")
             else:
-                # Local development: use default geckodriver
+                # Local development
                 try:
-                    logger.info("🦊 Local development: using default geckodriver")
                     self.driver = webdriver.Firefox(options=firefox_options)
-                    logger.info("✅ Using local Firefox")
-                except Exception as driver_error:
-                    logger.error(f"Firefox setup failed: {driver_error}")
-                    raise
+                    logger.info("✅ Local Firefox setup successful")
+                    driver_setup_success = True
+                except Exception as firefox_error:
+                    logger.warning(f"Local Firefox failed: {firefox_error}")
+                    
+        except Exception as firefox_error:
+            logger.warning(f"Firefox setup completely failed: {firefox_error}")
+        
+        # Fallback to Chrome if Firefox failed
+        if not driver_setup_success:
+            try:
+                logger.info("🔄 Firefox failed, falling back to Chrome...")
+                chrome_options = ChromeOptions()
+                
+                # Minimal Chrome configuration for stability
+                chrome_options.add_argument("--headless")
+                chrome_options.add_argument("--no-sandbox")
+                chrome_options.add_argument("--disable-dev-shm-usage")
+                chrome_options.add_argument("--disable-gpu")
+                chrome_options.add_argument("--window-size=1920,1080")
+                chrome_options.add_argument("--disable-extensions")
+                
+                if self.is_production:
+                    # Try system chrome
+                    try:
+                        self.driver = webdriver.Chrome(options=chrome_options)
+                        logger.info("✅ Chrome fallback successful")
+                        driver_setup_success = True
+                    except Exception as chrome_error:
+                        logger.error(f"Chrome fallback also failed: {chrome_error}")
+                else:
+                    self.driver = webdriver.Chrome(options=chrome_options)
+                    logger.info("✅ Local Chrome fallback successful")
+                    driver_setup_success = True
+                    
+            except Exception as chrome_error:
+                logger.error(f"Chrome fallback failed: {chrome_error}")
+        
+        if not driver_setup_success:
+            raise Exception("Both Firefox and Chrome setup failed")
             
             # Set timeouts for production reliability
             timeout = 180 if self.is_production else 60
             self.driver.implicitly_wait(10)
             self.driver.set_page_load_timeout(timeout)
             
-            logger.info(f"Chrome WebDriver setup complete - Production mode: {self.is_production}")
-            
-        except Exception as e:
-            logger.error(f"Error setting up WebDriver: {e}")
-            raise
+        logger.info(f"WebDriver setup complete - Production mode: {self.is_production}")
 
     def setup_supabase(self) -> None:
         """Setup Supabase client"""
@@ -369,8 +409,8 @@ class InPlayFootballScraper:
                                     # Retry cell text extraction with stale element handling
                                     cell_text = None
                                     for cell_retry in range(3):
-                                        try:
-                                            cell_text = cell.text.strip()
+                                try:
+                                    cell_text = cell.text.strip()
                                             break
                                         except StaleElementReferenceException:
                                             if cell_retry < 2:
