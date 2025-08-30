@@ -1,51 +1,47 @@
-# Railway Python Selenium deployment - Research-based approach
-FROM python:3.11-slim
+# EXACT COPY of the ONE successful build - node:18-slim approach
+FROM node:18-slim
 
-# Install system dependencies for Chrome and Selenium
+# Install Python, browsers and dependencies - EXACT copy from working build
 RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    firefox-esr \
+    chromium \
+    chromium-driver \
     wget \
-    gnupg \
-    unzip \
-    curl \
     xvfb \
+    x11-utils \
+    dbus-x11 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Google Chrome
-RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update \
-    && apt-get install -y google-chrome-stable \
-    && rm -rf /var/lib/apt/lists/*
+# Install geckodriver - EXACT copy from working build
+RUN wget -O /tmp/geckodriver.tar.gz https://github.com/mozilla/geckodriver/releases/download/v0.33.0/geckodriver-v0.33.0-linux64.tar.gz \
+    && tar -xzf /tmp/geckodriver.tar.gz -C /usr/bin \
+    && chmod +x /usr/bin/geckodriver \
+    && rm /tmp/geckodriver.tar.gz
 
-# Install ChromeDriver
-RUN CHROME_DRIVER_VERSION=`curl -sS chromedriver.storage.googleapis.com/LATEST_RELEASE` \
-    && wget -O /tmp/chromedriver.zip http://chromedriver.storage.googleapis.com/$CHROME_DRIVER_VERSION/chromedriver_linux64.zip \
-    && unzip /tmp/chromedriver.zip chromedriver -d /usr/local/bin/ \
-    && rm /tmp/chromedriver.zip \
-    && chmod +x /usr/local/bin/chromedriver
-
-# Install Node.js (for the server component)
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -y nodejs
+# Create symlink for python command
+RUN ln -sf python3 /usr/bin/python
 
 # Set working directory
 WORKDIR /app
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Create virtual environment
+RUN python3 -m venv /opt/venv
 
-# Copy package.json and install Node dependencies
+# Add virtual environment to PATH
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy package files
 COPY package*.json ./
-RUN npm install --only=production
+COPY requirements.txt ./
 
-# Copy application code
+# Install Python dependencies
+RUN pip install --upgrade pip && pip install -r requirements.txt
+
+# Copy source code
 COPY . .
-
-# Set environment variables for Chrome
-ENV CHROME_BIN=/usr/bin/google-chrome
-ENV CHROME_PATH=/usr/bin/google-chrome
-ENV CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
 
 # Expose port
 EXPOSE $PORT

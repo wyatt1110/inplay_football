@@ -89,10 +89,10 @@ class InPlayFootballScraper:
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--disable-extensions")
             
-            # Set Chrome binary path for Railway deployment
+            # Set Chrome binary path - EXACT copy from working build
             if self.is_production:
-                chrome_options.binary_location = "/usr/bin/google-chrome"
-                service = Service("/usr/local/bin/chromedriver")
+                chrome_options.binary_location = "/usr/bin/chromium"
+                service = Service("/usr/bin/chromedriver")
                 self.driver = webdriver.Chrome(service=service, options=chrome_options)
             else:
                 self.driver = webdriver.Chrome(options=chrome_options)
