@@ -75,13 +75,13 @@ class InPlayFootballScraper:
         logger.info(f"InPlay Football Scraper initialized - Production: {self.is_production}")
 
     def setup_driver(self) -> None:
-        """Setup Chrome WebDriver - SIMPLE approach like other Railway services"""
+        """Setup Chrome WebDriver - EXACT copy from working TELEGRAM_BOTS_UPLOAD service"""
         try:
             logger.info("🔧 Setting up Chrome WebDriver...")
             
             chrome_options = Options()
             
-            # Basic headless configuration
+            # Configuration matching working service
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
@@ -89,8 +89,13 @@ class InPlayFootballScraper:
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--disable-extensions")
             
-            # Create WebDriver
-            self.driver = webdriver.Chrome(options=chrome_options)
+            # Set Chrome binary path (from working service)
+            if self.is_production:
+                chrome_options.binary_location = "/usr/bin/chromium-browser"
+                service = Service("/usr/bin/chromedriver")
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            else:
+                self.driver = webdriver.Chrome(options=chrome_options)
             
             # Set timeouts
             self.driver.implicitly_wait(10)
