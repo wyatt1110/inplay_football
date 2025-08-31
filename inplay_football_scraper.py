@@ -419,20 +419,10 @@ class InPlayFootballScraper:
             
             for column, value in row.items():
                 if column == 'timeupdated':
-                    # Handle timestamp conversion with specific format: 29/08/2025, 18:44:35
+                    # Store the raw date string exactly as it appears on the website
+                    # The Supabase column is TEXT type, so no parsing needed
                     if value and value.strip():
-                        try:
-                            # Parse datetime and convert to ISO string for Supabase
-                            dt_obj = datetime.strptime(value.strip(), "%d/%m/%Y, %H:%M:%S")
-                            cleaned_row[column] = dt_obj.isoformat()
-                        except ValueError:
-                            try:
-                                # Try alternative format without seconds
-                                dt_obj = datetime.strptime(value.strip(), "%d/%m/%Y, %H:%M")
-                                cleaned_row[column] = dt_obj.isoformat()
-                            except ValueError:
-                                logger.warning(f"Could not parse TimeUpdated: {value}")
-                                cleaned_row[column] = None
+                        cleaned_row[column] = value.strip()
                     else:
                         cleaned_row[column] = None
                         
@@ -516,21 +506,23 @@ class InPlayFootballScraper:
             
             for record in valid_data:
                 try:
-                    # Extract date from timeupdated for matching
+                    # Extract date from timeupdated for matching (raw string format)
                     timeupdated_str = record['timeupdated']
-                    if isinstance(timeupdated_str, str):
-                        # Parse the ISO string to get date
-                        from datetime import datetime
-                        dt = datetime.fromisoformat(timeupdated_str.replace('Z', '+00:00'))
-                        match_date = dt.date().isoformat()
-                    else:
-                        # If it's already a datetime object
-                        match_date = timeupdated_str.date().isoformat()
-                    
                     hometeam = record['hometeam']
                     
-                    # Check if record exists (same home team on same date)
-                    existing_query = self.supabase_client.table('inplay_football').select('id').eq('hometeam', hometeam).gte('timeupdated', f'{match_date}T00:00:00').lt('timeupdated', f'{match_date}T23:59:59')
+                    # For duplicate checking, we'll extract just the date part from the raw string
+                    # Handle both US format (8/31/2025, 4:08:12 PM) and UK format (31/08/2025, 18:44:35)
+                    match_date = None
+                    if timeupdated_str:
+                        try:
+                            # Try to extract date part (before the comma)
+                            date_part = timeupdated_str.split(',')[0].strip()
+                            match_date = date_part
+                        except:
+                            match_date = timeupdated_str
+                    
+                    # Check if record exists (same home team with same date part)
+                    existing_query = self.supabase_client.table('inplay_football').select('id').eq('hometeam', hometeam).like('timeupdated', f'{match_date}%')
                     
                     existing_result = existing_query.execute()
                     
