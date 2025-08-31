@@ -1,385 +1,648 @@
 #!/usr/bin/env python3
 """
-InPlay Football Scraper - Railway Compatible
-Uses requests + BeautifulSoup (no browser required)
-Same pattern as working scrapers in this workspace
+InPlay Football Tips Scraper
+Professional scraper for inplayfootballtips.co.uk Full-Time Model Raw data
+Stores data in Supabase with duplicate prevention
 """
 
 import os
-import sys
 import time
 import logging
-from datetime import datetime
-from typing import List, Dict, Optional, Any
-
-# Railway-compatible libraries (no browser required)
+import re
 import requests
-from bs4 import BeautifulSoup
-import pandas as pd
+import json
+from datetime import datetime
+from typing import List, Dict, Optional
+
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service
+
 from supabase import create_client, Client
 
-# Configure logging
+# Configure logging for production
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(sys.stdout)
+        logging.FileHandler('inplay_scraper.log'),
+        logging.StreamHandler()
     ]
 )
 
 logger = logging.getLogger(__name__)
 
 class InPlayFootballScraper:
-    """
-    Railway-compatible scraper using requests + BeautifulSoup
-    Same environment variable pattern as working scrapers
-    """
-    
     def __init__(self):
-        """Initialize with same pattern as working scrapers"""
-        self.session = requests.Session()
-        self.supabase_client = None
-        self.is_production = os.getenv('NODE_ENV') == 'production' or os.getenv('RAILWAY_ENVIRONMENT_NAME') is not None
-        
+        """Initialize the scraper with production configuration"""
         # Login credentials
         self.username = "Wyatt1110"
         self.password = "Wiggers10"
         self.login_url = "https://inplayfootballtips.co.uk/login"
         self.fulltime_url = "https://inplayfootballtips.co.uk/full-time"
         
-        # Supabase configuration - same pattern as working scrapers
+                # Supabase configuration - use environment variables for Railway deployment
         self.supabase_url = os.getenv('SUPABASE_URL', 'https://gwvnmzflxttdlhrkejmy.supabase.co')
         self.supabase_key = os.getenv('SUPABASE_SERVICE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3dm5temZseHR0ZGxocmtlam15Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczMzkwODc5NSwiZXhwIjoyMDQ5NDg0Nzk1fQ.5FcuTSXJJLGhfnAVhOEKACTBGCxiDMdMIQeOR2n19eI')
+
+        # Chrome configuration for cloud deployment
+        self.is_production = os.getenv('NODE_ENV') == 'production' or os.getenv('RAILWAY_ENVIRONMENT_NAME') is not None
         
-        # Setup session headers to mimic real browser
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-        })
+        # Always run headless
+        self.debug_mode = False
         
-        # Table columns (exact lowercase names from PostgreSQL)
+        self.driver = None
+        self.supabase_client = None
+        
+        # Column mapping for the table (49 columns from HTML)
         self.columns = [
-            'timeupdated', 'league', 'hometeam', 'awayteam', 'min', 'score', 'modsup',
-            'hdp1', 'hprice', 'aprice', 'homehdp1', 'awayhdp1', 'homehdp2', 'awayhdp2',
-            'homehdp3', 'awayhdp3', 'homehdp4', 'awayhdp4', 'homehdp5', 'awayhdp5',
-            'homehdp6', 'awayhdp6', 'homehdp7', 'awayhdp7', 'homehdp8', 'awayhdp8',
-            'homehdp9', 'awayhdp9', 'homehdp10', 'awayhdp10', 'homehdp11', 'awayhdp11',
-            'homehdp12', 'awayhdp12', 'homehdp13', 'awayhdp13', 'homehdp14', 'awayhdp14',
-            'homehdp15', 'awayhdp15', 'homehdp16', 'awayhdp16', 'homehdp17', 'awayhdp17',
-            'homehdp18', 'awayhdp18', 'homehdp19', 'awayhdp19', 'homehdp20', 'awayhdp20',
-            'analysis'
+            'timeupdated', 'league', 'hometeam', 'awayteam', 'min', 'score',
+            'modsup', 'hdp1', 'hprice', 'aprice', 'homehdp1', 'awayhdp1',
+            'tg1', 'over_price', 'under_price', 'overtg1', 'undertg1',
+            'hdp1_hval', 'hdp1_aval', 'tg1_oval', 'tg1_uval',
+            'hdp2', 'homehdp2', 'awayhdp2', 'hdp3', 'homehdp3', 'awayhdp3',
+            'hdp4', 'homehdp4', 'awayhdp4', 'modhome', 'modaway',
+            'homeperc', 'awayperc', 'modtgs', 'tg2', 'overtg2', 'undertg2',
+            'tg3', 'overtg3', 'undertg3', 'tg4', 'overtg4', 'undertg4',
+            'modover', 'modunder', 'overperc', 'underperc',
+            'startline', 'start_tgs', 'analysis'
         ]
         
         logger.info(f"InPlay Football Scraper initialized - Production: {self.is_production}")
 
-    def setup_supabase(self):
-        """Initialize Supabase client - same pattern as working scrapers"""
+    def setup_driver(self) -> None:
+        """Setup Chrome WebDriver with cloud-ready configuration"""
         try:
-            logger.info("Setting up Supabase client...")
-            self.supabase_client = create_client(self.supabase_url, self.supabase_key)
-            logger.info("✅ Supabase client initialized")
+            chrome_options = Options()
+            
+            # Always run headless with stable configuration
+            chrome_options.add_argument("--headless")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-setuid-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--disable-web-security")
+            chrome_options.add_argument("--disable-extensions")
+            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            
+            # Setup ChromeDriver service with error handling
+            try:
+                driver_path = ChromeDriverManager().install()
+                # Fix for WebDriverManager selecting wrong file
+                if "THIRD_PARTY_NOTICES.chromedriver" in driver_path:
+                    import os
+                    correct_path = driver_path.replace("THIRD_PARTY_NOTICES.chromedriver", "chromedriver")
+                    if os.path.exists(correct_path):
+                        driver_path = correct_path
+                
+                service = Service(driver_path)
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            except Exception as driver_error:
+                logger.error(f"ChromeDriverManager failed: {driver_error}")
+                # Fallback: try system chromedriver
+                try:
+                    self.driver = webdriver.Chrome(options=chrome_options)
+                except Exception as fallback_error:
+                    logger.error(f"System chromedriver also failed: {fallback_error}")
+                    raise
+            
+            # Set timeouts for production reliability
+            timeout = 180 if self.is_production else 60
+            self.driver.implicitly_wait(10)
+            self.driver.set_page_load_timeout(timeout)
+            
+            logger.info(f"Chrome WebDriver setup complete - Production mode: {self.is_production}")
+            
         except Exception as e:
-            logger.error(f"❌ Supabase setup failed: {e}")
+            logger.error(f"Error setting up WebDriver: {e}")
             raise
 
-    def login(self):
-        """Login using requests session"""
+    def setup_supabase(self) -> None:
+        """Setup Supabase client"""
         try:
-            logger.info("🔐 Logging into InPlay Football Tips...")
+            if self.supabase_url and self.supabase_key:
+                self.supabase_client: Client = create_client(self.supabase_url, self.supabase_key)
+                logger.info("✅ Supabase client setup complete")
+            else:
+                logger.warning("⚠️ Supabase not configured - data will not be saved to database")
+                self.supabase_client = None
+        except Exception as e:
+            logger.error(f"❌ Error setting up Supabase client: {e}")
+            self.supabase_client = None
+
+    def login(self) -> bool:
+        """Login to the website"""
+        try:
+            logger.info("🔐 Navigating to login page...")
+            self.driver.get(self.login_url)
             
-            # Get login page
-            login_page = self.session.get(self.login_url, timeout=30)
-            login_page.raise_for_status()
+            # Wait for page to load and find login form
+            timeout = 40 if self.is_production else 20
+            wait = WebDriverWait(self.driver, timeout)
             
-            soup = BeautifulSoup(login_page.content, 'html.parser')
-            
-            # Find login form
-            form = soup.find('form')
-            if not form:
-                logger.error("❌ Could not find login form")
+            # Find username field and enter credentials
+            try:
+                username_field = wait.until(EC.presence_of_element_located((By.NAME, "username")))
+                username_field.clear()
+                username_field.send_keys(self.username)
+                logger.info("✅ Username entered successfully")
+            except Exception as e:
+                logger.error(f"❌ Failed to find/fill username field: {e}")
                 return False
             
-            # Prepare login data
-            login_data = {
-                'username': self.username,
-                'password': self.password
-            }
+            # Find password field and enter credentials  
+            try:
+                password_field = self.driver.find_element(By.NAME, "password")
+                password_field.clear()
+                password_field.send_keys(self.password)
+                logger.info("✅ Password entered successfully")
+            except Exception as e:
+                logger.error(f"❌ Failed to find/fill password field: {e}")
+                return False
             
-            # Extract any hidden fields
-            hidden_inputs = form.find_all('input', type='hidden')
-            for hidden in hidden_inputs:
-                name = hidden.get('name')
-                value = hidden.get('value', '')
-                if name:
-                    login_data[name] = value
+            # Find and click login button
+            try:
+                login_button = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Login')]")
+                login_button.click()
+                logger.info("✅ Login button clicked")
+            except Exception as e:
+                logger.error(f"❌ Failed to find/click login button: {e}")
+                return False
             
-            # Submit login form
-            login_response = self.session.post(self.login_url, data=login_data, timeout=30)
-            login_response.raise_for_status()
+            # Wait for successful login - check for redirect or dashboard elements
+            time.sleep(5 if self.is_production else 3)
             
-            # Check if login was successful
-            if 'login' not in login_response.url.lower() or 'dashboard' in login_response.url.lower():
-                logger.info("✅ Successfully logged in")
+            # Check if login was successful by verifying we're no longer on login page
+            current_url = self.driver.current_url
+            logger.info(f"🔍 Current URL after login: {current_url}")
+            
+            if "login" not in current_url:
+                logger.info("✅ Login successful!")
                 return True
             else:
-                soup = BeautifulSoup(login_response.content, 'html.parser')
-                if not soup.find('form') or 'welcome' in soup.get_text().lower():
-                    logger.info("✅ Successfully logged in")
-                    return True
-                else:
+                # Check for error messages on the page
+                try:
+                    # Look for specific error elements
+                    error_messages = self.driver.find_elements(By.CSS_SELECTOR, ".error, .alert, .message")
+                    if error_messages:
+                        for error in error_messages:
+                            if error.is_displayed():
+                                logger.error(f"❌ Login error message: {error.text}")
+                    
+                    # Check page title
+                    page_title = self.driver.title
+                    logger.info(f"📄 Page title: {page_title}")
+                    
+                    # Look for any validation messages
+                    page_source = self.driver.page_source
+                    if "invalid" in page_source.lower() or "incorrect" in page_source.lower():
+                        logger.error("❌ Login failed - credentials may be incorrect")
+                    elif "required" in page_source.lower():
+                        logger.error("❌ Login failed - required fields may not be filled")
+                    else:
+                        logger.error("❌ Login failed - still on login page (unknown reason)")
+                        # Save a screenshot for debugging if in debug mode
+                        if self.debug_mode:
+                            try:
+                                self.driver.save_screenshot("login_failure.png")
+                                logger.info("📸 Screenshot saved as login_failure.png")
+                            except:
+                                pass
+                        
+                except Exception as debug_error:
+                    logger.error(f"❌ Error during login debugging: {debug_error}")
                     logger.error("❌ Login failed - still on login page")
-                    return False
+                return False
                 
+        except TimeoutException:
+            logger.error("❌ Timeout during login process")
+            return False
         except Exception as e:
-            logger.error(f"❌ Login failed: {e}")
+            logger.error(f"❌ Error during login: {e}")
             return False
 
-    def get_fulltime_page(self):
-        """Get the full-time page content"""
+    def navigate_to_fulltime_page(self) -> bool:
+        """Navigate to the full-time model page"""
         try:
-            logger.info("🏈 Getting full-time page...")
-            response = self.session.get(self.fulltime_url, timeout=30)
-            response.raise_for_status()
+            logger.info("🌐 Navigating to full-time page...")
+            self.driver.get(self.fulltime_url)
             
-            soup = BeautifulSoup(response.content, 'html.parser')
-            logger.info("✅ Successfully retrieved full-time page")
-            return soup
+            # Wait for page to load
+            timeout = 40 if self.is_production else 20
+            wait = WebDriverWait(self.driver, timeout)
+            wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+            
+            time.sleep(3 if self.is_production else 2)
+            logger.info("✅ Successfully navigated to full-time page")
+            return True
             
         except Exception as e:
-            logger.error(f"❌ Failed to get full-time page: {e}")
-            return None
+            logger.error(f"❌ Error navigating to full-time page: {e}")
+            return False
 
-    def scrape_table_data(self, soup):
-        """Extract table data from the full-time page"""
+    def click_fulltime_raw_tab(self) -> bool:
+        """Click on the 'Full-Time Model Raw' tab"""
+        try:
+            logger.info("🎯 Looking for 'Full-Time Model Raw' tab...")
+            timeout = 40 if self.is_production else 20
+            wait = WebDriverWait(self.driver, timeout)
+            
+            # Find the tab using the provided HTML structure
+            raw_tab = wait.until(EC.presence_of_element_located((By.ID, "two-tab")))
+            
+            # Scroll to the tab to ensure it's visible
+            self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", raw_tab)
+            time.sleep(2)
+            
+            # Try multiple methods to click the tab
+            try:
+                # Method 1: Standard click
+                raw_tab.click()
+                logger.info("✅ Tab clicked using standard click")
+            except Exception as e1:
+                logger.warning(f"⚠️ Standard click failed: {e1}")
+                try:
+                    # Method 2: JavaScript click
+                    self.driver.execute_script("arguments[0].click();", raw_tab)
+                    logger.info("✅ Tab clicked using JavaScript click")
+                except Exception as e2:
+                    logger.warning(f"⚠️ JavaScript click failed: {e2}")
+                    try:
+                        # Method 3: Click the associated input element (for label)
+                        associated_input = self.driver.find_element(By.ID, "two")
+                        associated_input.click()
+                        logger.info("✅ Tab clicked via associated input element")
+                    except Exception as e3:
+                        logger.error(f"❌ All click methods failed: {e3}")
+                        return False
+            
+            # Wait for content to load (longer in production for stability)
+            time.sleep(5 if self.is_production else 3)
+            
+            logger.info("✅ Successfully clicked 'Full-Time Model Raw' tab")
+            return True
+            
+        except TimeoutException:
+            logger.error("❌ Timeout waiting for 'Full-Time Model Raw' tab")
+            return False
+        except Exception as e:
+            logger.error(f"❌ Error clicking 'Full-Time Model Raw' tab: {e}")
+            return False
+
+    def scrape_table_data(self) -> List[Dict]:
+        """Scrape all data from the DataTable - handles dynamic content"""
         try:
             logger.info("📊 Starting table data scraping...")
             
-            # Find the table
-            table = None
-            table_selectors = [
-                '#fulltimemodelraw',
-                'table#fulltimemodelraw',
-                '.tab-content table',
-                'table'
-            ]
+            # Wait longer for dynamic table to load completely
+            timeout = 120 if self.is_production else 60
+            wait = WebDriverWait(self.driver, timeout)
             
-            for selector in table_selectors:
-                table = soup.select_one(selector)
-                if table:
-                    logger.info(f"✅ Found table with selector: {selector}")
-                    break
+            # Wait for table to be present and visible
+            table = wait.until(EC.presence_of_element_located((By.ID, "fulltimemodelraw")))
             
-            if not table:
-                logger.error("❌ Could not find table")
-                return []
+            # Additional wait for table content to load
+            logger.info("⏳ Waiting for table content to load...")
+            time.sleep(10 if self.is_production else 5)
             
-            # Extract table rows
-            rows = table.find('tbody')
-            if not rows:
-                rows = table
-            
-            data_rows = rows.find_all('tr')
-            logger.info(f"📋 Found {len(data_rows)} rows")
+            # Scroll to ensure all content is loaded
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(2)
+            self.driver.execute_script("window.scrollTo(0, 0);")
+            time.sleep(2)
             
             scraped_data = []
+            max_retries = 3
             
-            for row_index, row in enumerate(data_rows):
+            for attempt in range(max_retries):
                 try:
-                    cells = row.find_all(['td', 'th'])
+                    logger.info(f"📋 Attempt {attempt + 1} to scrape table data...")
                     
-                    # Skip header rows or incomplete rows
-                    if not cells or len(cells) < len(self.columns):
+                    # Re-find table and tbody to avoid stale references
+                    table = self.driver.find_element(By.ID, "fulltimemodelraw")
+                    tbody = table.find_element(By.TAG_NAME, "tbody")
+                    
+                    # Use CSS selector to find all rows at once - more reliable
+                    rows = self.driver.find_elements(By.CSS_SELECTOR, "#fulltimemodelraw tbody tr")
+                    
+                    logger.info(f"📋 Found {len(rows)} rows in attempt {attempt + 1}")
+                    
+                    if len(rows) == 0:
+                        logger.warning("⚠️ No rows found, waiting and retrying...")
+                        time.sleep(5)
                         continue
                     
-                    # Extract cell data
-                    row_data = {}
-                    for col_index, (column, cell) in enumerate(zip(self.columns, cells)):
+                    # Process each row
+                    for i in range(len(rows)):
                         try:
-                            cell_text = cell.get_text(strip=True)
+                            # Re-find the row to avoid stale reference
+                            current_rows = self.driver.find_elements(By.CSS_SELECTOR, "#fulltimemodelraw tbody tr")
+                            if i >= len(current_rows):
+                                logger.warning(f"⚠️ Row {i+1} no longer available, skipping")
+                                break
                             
-                            # Handle empty cells
-                            if cell_text == '' or cell_text == '-':
-                                cell_text = None
+                            row = current_rows[i]
+                            cells = row.find_elements(By.TAG_NAME, "td")
                             
-                            row_data[column] = cell_text
+                            if len(cells) != len(self.columns):
+                                logger.warning(f"⚠️ Row {i+1}: Expected {len(self.columns)} columns, found {len(cells)}")
+                                continue
                             
-                        except Exception as cell_error:
-                            logger.warning(f"⚠️ Error reading cell {col_index + 1} in row {row_index + 1}: {cell_error}")
-                            row_data[column] = None
+                            # Extract data from each cell
+                            row_data = {}
+                            for j, (column, cell) in enumerate(zip(self.columns, cells)):
+                                try:
+                                    cell_text = cell.text.strip()
+                                    
+                                    # Handle empty cells
+                                    if cell_text == '' or cell_text == '-':
+                                        cell_text = None
+                                    
+                                    row_data[column] = cell_text
+                                except Exception as cell_error:
+                                    logger.warning(f"⚠️ Error reading cell {j+1} in row {i+1}: {cell_error}")
+                                    row_data[column] = None
+                            
+                            scraped_data.append(row_data)
+                            
+                            # Log progress every 10 rows
+                            if (i + 1) % 10 == 0:
+                                logger.info(f"📈 Processed {i + 1} rows so far...")
+                            
+                        except Exception as row_error:
+                            logger.warning(f"⚠️ Error processing row {i+1}: {row_error}")
+                            # Continue with next row instead of failing completely
+                            continue
                     
-                    scraped_data.append(row_data)
-                    
-                    # Progress logging
-                    if (row_index + 1) % 10 == 0:
-                        logger.info(f"📈 Processed {row_index + 1} rows so far...")
-                    
-                except Exception as row_error:
-                    logger.warning(f"⚠️ Error processing row {row_index + 1}: {row_error}")
-                    continue
+                    # If we got data, break out of retry loop
+                    if scraped_data:
+                        logger.info(f"✅ Successfully scraped {len(scraped_data)} rows on attempt {attempt + 1}")
+                        return scraped_data
+                    else:
+                        logger.warning(f"⚠️ No data scraped on attempt {attempt + 1}")
+                        
+                except Exception as attempt_error:
+                    logger.error(f"❌ Error on attempt {attempt + 1}: {attempt_error}")
+                    if attempt < max_retries - 1:
+                        logger.info("🔄 Retrying...")
+                        time.sleep(5)
+                        continue
+                    else:
+                        logger.error("❌ All attempts failed")
+                        break
             
-            logger.info(f"✅ Successfully scraped {len(scraped_data)} rows")
+            # If we get here, all attempts failed
+            if not scraped_data:
+                logger.error("❌ Failed to scrape any data after all attempts")
+                
             return scraped_data
             
+        except TimeoutException:
+            logger.error("❌ Timeout waiting for table to load")
+            return []
         except Exception as e:
-            logger.error(f"❌ Table scraping failed: {e}")
+            logger.error(f"❌ Error scraping table data: {e}")
             return []
 
-    def clean_and_convert_data(self, data):
-        """Clean and convert scraped data for database insertion"""
-        logger.info("🧹 Cleaning and converting scraped data...")
+    def clean_and_convert_data(self, data: List[Dict]) -> List[Dict]:
+        """Clean and convert data types for database insertion"""
         cleaned_data = []
         
         for row in data:
-            try:
-                cleaned_row = {}
-                
-                for column, value in row.items():
-                    if column == 'timeupdated' and value:
-                        # Convert datetime format
+            cleaned_row = {}
+            
+            for column, value in row.items():
+                if column == 'timeupdated':
+                    # Handle timestamp conversion with specific format: 29/08/2025, 18:44:35
+                    if value and value.strip():
                         try:
-                            dt = datetime.strptime(value, "%d/%m/%Y, %H:%M:%S")
-                            cleaned_row[column] = dt.isoformat()
+                            # Parse datetime and convert to ISO string for Supabase
+                            dt_obj = datetime.strptime(value.strip(), "%d/%m/%Y, %H:%M:%S")
+                            cleaned_row[column] = dt_obj.isoformat()
                         except ValueError:
-                            cleaned_row[column] = value
-                    elif column in ['min'] and value:
-                        # Convert to integer
+                            try:
+                                # Try alternative format without seconds
+                                dt_obj = datetime.strptime(value.strip(), "%d/%m/%Y, %H:%M")
+                                cleaned_row[column] = dt_obj.isoformat()
+                            except ValueError:
+                                logger.warning(f"Could not parse TimeUpdated: {value}")
+                                cleaned_row[column] = None
+                    else:
+                        cleaned_row[column] = None
+                        
+                elif column in ['league', 'hometeam', 'awayteam', 'score', 'analysis']:
+                    # Text fields - clean whitespace
+                    cleaned_row[column] = value.strip() if value else None
+                    
+                elif column == 'min':
+                    # Integer field - handle various formats
+                    if value and str(value).strip():
                         try:
-                            cleaned_row[column] = int(value)
-                        except (ValueError, TypeError):
-                            cleaned_row[column] = None
-                    elif column in ['modsup', 'hdp1', 'hprice', 'aprice'] + [f'homehdp{i}' for i in range(1, 21)] + [f'awayhdp{i}' for i in range(1, 21)] and value:
-                        # Convert to float
-                        try:
-                            cleaned_row[column] = float(value)
-                        except (ValueError, TypeError):
+                            # Extract numeric part only (in case there's extra text)
+                            numeric_value = ''.join(filter(str.isdigit, str(value)))
+                            if numeric_value:
+                                cleaned_row[column] = int(numeric_value)
+                            else:
+                                cleaned_row[column] = None
+                        except ValueError:
                             cleaned_row[column] = None
                     else:
-                        # Keep as string or None
-                        cleaned_row[column] = value if value else None
-                
-                cleaned_data.append(cleaned_row)
-                
-            except Exception as e:
-                logger.warning(f"⚠️ Error cleaning row data: {e}")
-                continue
+                        cleaned_row[column] = None
+                        
+                else:
+                    # All other fields are numeric (DECIMAL)
+                    if value and str(value).strip() and str(value).strip() not in ['-', '']:
+                        try:
+                            # Clean the value - remove any non-numeric characters except decimal point and minus
+                            clean_value = str(value).strip()
+                            # Handle negative values and decimals
+                            if clean_value.replace('-', '').replace('.', '').isdigit():
+                                cleaned_row[column] = float(clean_value)
+                            else:
+                                # Try to extract numeric value from string
+                                numeric_match = re.search(r'-?\d+\.?\d*', clean_value)
+                                if numeric_match:
+                                    cleaned_row[column] = float(numeric_match.group())
+                                else:
+                                    cleaned_row[column] = None
+                        except (ValueError, AttributeError):
+                            cleaned_row[column] = None
+                    else:
+                        cleaned_row[column] = None
+            
+            cleaned_data.append(cleaned_row)
         
-        logger.info(f"✅ Cleaned {len(cleaned_data)} rows")
         return cleaned_data
 
-    def save_to_supabase(self, data):
-        """Save data to Supabase with upsert handling - same pattern as working scrapers"""
-        if not data:
-            logger.warning("⚠️ No data to save")
+    def save_to_supabase(self, data: List[Dict]) -> bool:
+        """Save data to Supabase with upsert functionality based on date + home team"""
+        if not self.supabase_client:
+            logger.warning("⚠️ Supabase client not configured - skipping database save")
             return False
         
-        logger.info(f"💾 Saving {len(data)} records to Supabase with upsert...")
-        
         try:
-            success_count = 0
-            error_count = 0
+            logger.info(f"💾 Saving {len(data)} records to Supabase with upsert...")
             
-            for record in data:
+            # Clean and convert data
+            clean_data = self.clean_and_convert_data(data)
+            
+            # Filter out records with no TimeUpdated or HomeTeam (required for uniqueness)
+            valid_data = []
+            skipped_records = 0
+            
+            for record in clean_data:
+                if record.get('timeupdated') and record.get('hometeam'):
+                    valid_data.append(record)
+                else:
+                    skipped_records += 1
+            
+            if skipped_records > 0:
+                logger.warning(f"⚠️ Skipped {skipped_records} records with missing timeupdated or hometeam")
+            
+            if not valid_data:
+                logger.error("❌ No valid records to save after cleaning")
+                return False
+            
+            logger.info(f"📤 Processing {len(valid_data)} valid records with upsert logic...")
+            
+            # Process each record individually for proper upsert
+            successful_upserts = 0
+            
+            for record in valid_data:
                 try:
-                    # Create unique identifier from timeupdated date and hometeam
-                    time_updated = record.get('timeupdated')
-                    home_team = record.get('hometeam')
+                    # Extract date from timeupdated for matching
+                    timeupdated_str = record['timeupdated']
+                    if isinstance(timeupdated_str, str):
+                        # Parse the ISO string to get date
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(timeupdated_str.replace('Z', '+00:00'))
+                        match_date = dt.date().isoformat()
+                    else:
+                        # If it's already a datetime object
+                        match_date = timeupdated_str.date().isoformat()
                     
-                    if not time_updated or not home_team:
-                        logger.warning("⚠️ Missing timeupdated or hometeam, skipping record")
-                        error_count += 1
-                        continue
+                    hometeam = record['hometeam']
                     
-                    # Extract date part for duplicate checking
-                    try:
-                        if 'T' in time_updated:  # ISO format
-                            date_part = time_updated.split('T')[0]
-                        else:
-                            date_part = time_updated.split(',')[0] if ',' in time_updated else time_updated
-                    except Exception:
-                        date_part = time_updated
+                    # Check if record exists (same home team on same date)
+                    existing_query = self.supabase_client.table('inplay_football').select('id').eq('hometeam', hometeam).gte('timeupdated', f'{match_date}T00:00:00').lt('timeupdated', f'{match_date}T23:59:59')
                     
-                    # Check for existing record
-                    existing = self.supabase_client.table('inplay_football').select('id').eq('hometeam', home_team).like('timeupdated', f'{date_part}%').execute()
+                    existing_result = existing_query.execute()
                     
-                    if existing.data:
+                    if existing_result.data and len(existing_result.data) > 0:
                         # Update existing record
-                        record_id = existing.data[0]['id']
-                        result = self.supabase_client.table('inplay_football').update(record).eq('id', record_id).execute()
-                        logger.debug(f"🔄 Updated existing record for {home_team}")
+                        existing_id = existing_result.data[0]['id']
+                        update_result = self.supabase_client.table('inplay_football').update(record).eq('id', existing_id).execute()
+                        
+                        if update_result.data:
+                            logger.info(f"✅ Updated existing record for {hometeam} on {match_date}")
+                            successful_upserts += 1
+                        else:
+                            logger.warning(f"⚠️ Update failed for {hometeam} on {match_date}")
                     else:
                         # Insert new record
-                        result = self.supabase_client.table('inplay_football').insert(record).execute()
-                        logger.debug(f"➕ Inserted new record for {home_team}")
-                    
-                    success_count += 1
-                    
+                        insert_result = self.supabase_client.table('inplay_football').insert(record).execute()
+                        
+                        if insert_result.data:
+                            logger.info(f"✅ Inserted new record for {hometeam} on {match_date}")
+                            successful_upserts += 1
+                        else:
+                            logger.warning(f"⚠️ Insert failed for {hometeam} on {match_date}")
+                            
                 except Exception as record_error:
-                    logger.warning(f"⚠️ Error processing record for {record.get('hometeam', 'unknown')}: {record_error}")
-                    error_count += 1
+                    logger.error(f"❌ Error processing record for {record.get('hometeam', 'unknown')}: {record_error}")
                     continue
             
-            logger.info(f"✅ Successfully processed {success_count} out of {len(data)} records")
-            if error_count > 0:
-                logger.info(f"❌ Failed to process {error_count} records")
-            
-            return success_count > 0
-            
+            logger.info(f"✅ Successfully processed {successful_upserts} out of {len(valid_data)} records")
+            return successful_upserts > 0
+                
         except Exception as e:
-            logger.error(f"❌ Supabase save failed: {e}")
+            logger.error(f"❌ Error saving to Supabase: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
             return False
 
-    def run_scraper(self):
-        """Main scraper execution - same pattern as working scrapers"""
+    def run_scraper(self) -> bool:
+        """Main method to run the complete scraping process"""
         try:
-            logger.info("🚀 Starting InPlay Football scraper...")
+            logger.info("=" * 60)
+            logger.info("🚀 Starting InPlay Football scraping process...")
+            logger.info(f"Environment: {'Production' if self.is_production else 'Development'}")
+            logger.info("=" * 60)
             
             # Setup components
+            self.setup_driver()
             self.setup_supabase()
             
             # Execute scraping workflow
             if not self.login():
+                logger.error("❌ Failed to login - aborting scraping")
                 return False
             
-            # Get page content
-            soup = self.get_fulltime_page()
-            if not soup:
+            if not self.navigate_to_fulltime_page():
+                logger.error("❌ Failed to navigate to full-time page - aborting scraping")
                 return False
             
-            # Extract data
-            scraped_data = self.scrape_table_data(soup)
+            if not self.click_fulltime_raw_tab():
+                logger.error("❌ Failed to click Full-Time Model Raw tab - aborting scraping")
+                return False
+            
+            # Scrape data
+            scraped_data = self.scrape_table_data()
+            
             if not scraped_data:
-                logger.error("❌ No data scraped")
+                logger.error("❌ No data scraped - aborting")
                 return False
             
-            # Clean and save data
-            cleaned_data = self.clean_and_convert_data(scraped_data)
-            success = self.save_to_supabase(cleaned_data)
+            logger.info(f"✅ Successfully scraped {len(scraped_data)} rows")
+            
+            # Save to database
+            success = self.save_to_supabase(scraped_data)
             
             if success:
-                logger.info("🎉 Scraper completed successfully!")
+                logger.info("=" * 60)
+                logger.info("🎉 Scraping process completed successfully!")
+                logger.info("=" * 60)
                 return True
             else:
-                logger.error("❌ Failed to save data to Supabase")
+                logger.error("❌ Failed to save data to database")
                 return False
             
         except Exception as e:
-            logger.error(f"💥 Scraper execution failed: {e}")
+            logger.error(f"❌ Error in scraping process: {e}")
             return False
+        finally:
+            if self.driver:
+                try:
+                    self.driver.quit()
+                    logger.info("🛑 WebDriver closed")
+                except:
+                    pass
 
 def main():
-    """Main execution function"""
-    scraper = InPlayFootballScraper()
-    success = scraper.run_scraper()
+    """Main function to run the scraper"""
+    import sys
     
-    if success:
-        logger.info("✅ Scraper execution completed successfully")
-        sys.exit(0)
-    else:
-        logger.error("❌ Scraper execution failed")
+    try:
+        scraper = InPlayFootballScraper()
+        success = scraper.run_scraper()
+        
+        if success:
+            logger.info("✅ InPlay Football scraper completed successfully!")
+            sys.exit(0)
+        else:
+            logger.error("❌ InPlay Football scraper failed!")
+            sys.exit(1)
+            
+    except KeyboardInterrupt:
+        logger.info("🛑 Scraper interrupted by user")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"❌ Fatal error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
