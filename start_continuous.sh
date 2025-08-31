@@ -27,8 +27,9 @@ fi
 
 echo "🔄 Choose running mode:"
 echo "1) Node.js server (recommended for Railway/cloud)"
-echo "2) Python continuous runner (recommended for VPS)"
-read -p "Enter choice (1 or 2): " choice
+echo "2) Python continuous runner (subprocess version)"
+echo "3) Direct Python runner (recommended for VPS - shows real-time output)"
+read -p "Enter choice (1, 2, or 3): " choice
 
 case $choice in
     1)
@@ -36,11 +37,15 @@ case $choice in
         node server.js
         ;;
     2)
-        echo "🚀 Starting Python continuous runner..."
+        echo "🚀 Starting Python continuous runner (subprocess)..."
         python3 continuous_runner.py
         ;;
+    3)
+        echo "🚀 Starting Direct Python runner..."
+        python3 run_continuous.py
+        ;;
     *)
-        echo "❌ Invalid choice. Starting Python runner by default..."
-        python3 continuous_runner.py
+        echo "❌ Invalid choice. Starting Direct Python runner by default..."
+        python3 run_continuous.py
         ;;
 esac

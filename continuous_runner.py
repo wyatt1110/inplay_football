@@ -36,13 +36,43 @@ def run_scraper_continuously():
         try:
             logger.info(f"🎯 Starting scraper run #{run_count} at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
             
-            # Run the scraper
-            result = subprocess.run(
+            # Run the scraper with real-time output
+            process = subprocess.Popen(
                 ['python3', 'inplay_football_scraper.py'],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=600  # 10 minute timeout
+                bufsize=1,
+                universal_newlines=True
             )
+            
+            # Stream output in real-time
+            stdout_lines = []
+            stderr_lines = []
+            
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    print(f"📊 {output.strip()}")
+                    stdout_lines.append(output)
+            
+            # Get any remaining output
+            remaining_stdout, remaining_stderr = process.communicate()
+            if remaining_stdout:
+                stdout_lines.append(remaining_stdout)
+            if remaining_stderr:
+                stderr_lines.append(remaining_stderr)
+            
+            # Create result object
+            class Result:
+                def __init__(self, returncode, stdout, stderr):
+                    self.returncode = returncode
+                    self.stdout = ''.join(stdout)
+                    self.stderr = ''.join(stderr)
+            
+            result = Result(process.returncode, stdout_lines, stderr_lines)
             
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
