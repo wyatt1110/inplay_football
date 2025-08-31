@@ -2,6 +2,7 @@
 """
 InPlay Football Scraper - Railway Compatible
 Uses requests + BeautifulSoup (no browser required)
+Same pattern as working scrapers in this workspace
 """
 
 import os
@@ -25,42 +26,30 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
+
 logger = logging.getLogger(__name__)
 
 class InPlayFootballScraper:
     """
     Railway-compatible scraper using requests + BeautifulSoup
-    Uses Railway environment variables: SUPABASE_URL and SUPABASE_SERVICE_KEY
+    Same environment variable pattern as working scrapers
     """
     
     def __init__(self):
-        """Initialize with Railway environment variables"""
+        """Initialize with same pattern as working scrapers"""
         self.session = requests.Session()
-        self.supabase: Optional[Client] = None
-        self.is_production = os.getenv('RAILWAY_ENVIRONMENT_NAME') is not None
+        self.supabase_client = None
+        self.is_production = os.getenv('NODE_ENV') == 'production' or os.getenv('RAILWAY_ENVIRONMENT_NAME') is not None
         
-        # Credentials
+        # Login credentials
         self.username = "Wyatt1110"
         self.password = "Wiggers10"
-        
-        # URLs
         self.login_url = "https://inplayfootballtips.co.uk/login"
         self.fulltime_url = "https://inplayfootballtips.co.uk/full-time"
         
-        # Supabase configuration - using Railway environment variables
-        self.supabase_url = os.getenv('SUPABASE_URL')
-        self.supabase_key = os.getenv('SUPABASE_SERVICE_KEY')
-        
-        # Validate environment variables
-        if not self.supabase_url:
-            logger.error("❌ SUPABASE_URL environment variable not set")
-            sys.exit(1)
-            
-        if not self.supabase_key:
-            logger.error("❌ SUPABASE_SERVICE_KEY environment variable not set")
-            sys.exit(1)
-        
-        logger.info(f"🔧 Using Supabase URL: {self.supabase_url}")
+        # Supabase configuration - same pattern as working scrapers
+        self.supabase_url = os.getenv('SUPABASE_URL', 'https://gwvnmzflxttdlhrkejmy.supabase.co')
+        self.supabase_key = os.getenv('SUPABASE_SERVICE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3dm5temZseHR0ZGxocmtlam15Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczMzkwODc5NSwiZXhwIjoyMDQ5NDg0Nzk1fQ.5FcuTSXJJLGhfnAVhOEKACTBGCxiDMdMIQeOR2n19eI')
         
         # Setup session headers to mimic real browser
         self.session.headers.update({
@@ -85,24 +74,24 @@ class InPlayFootballScraper:
             'analysis'
         ]
         
-        logger.info(f"🏈 InPlay Football Scraper initialized - Production: {self.is_production}")
+        logger.info(f"InPlay Football Scraper initialized - Production: {self.is_production}")
 
-    def setup_supabase(self) -> None:
-        """Initialize Supabase client"""
+    def setup_supabase(self):
+        """Initialize Supabase client - same pattern as working scrapers"""
         try:
-            logger.info("🔧 Setting up Supabase client...")
-            self.supabase = create_client(self.supabase_url, self.supabase_key)
+            logger.info("Setting up Supabase client...")
+            self.supabase_client = create_client(self.supabase_url, self.supabase_key)
             logger.info("✅ Supabase client initialized")
         except Exception as e:
             logger.error(f"❌ Supabase setup failed: {e}")
             raise
 
-    def login(self) -> bool:
+    def login(self):
         """Login using requests session"""
         try:
             logger.info("🔐 Logging into InPlay Football Tips...")
             
-            # Get login page to extract any CSRF tokens or form data
+            # Get login page
             login_page = self.session.get(self.login_url, timeout=30)
             login_page.raise_for_status()
             
@@ -120,7 +109,7 @@ class InPlayFootballScraper:
                 'password': self.password
             }
             
-            # Extract any hidden fields (CSRF tokens, etc.)
+            # Extract any hidden fields
             hidden_inputs = form.find_all('input', type='hidden')
             for hidden in hidden_inputs:
                 name = hidden.get('name')
@@ -132,12 +121,11 @@ class InPlayFootballScraper:
             login_response = self.session.post(self.login_url, data=login_data, timeout=30)
             login_response.raise_for_status()
             
-            # Check if login was successful (redirect or no login form on response)
+            # Check if login was successful
             if 'login' not in login_response.url.lower() or 'dashboard' in login_response.url.lower():
                 logger.info("✅ Successfully logged in")
                 return True
             else:
-                # Check response content for success indicators
                 soup = BeautifulSoup(login_response.content, 'html.parser')
                 if not soup.find('form') or 'welcome' in soup.get_text().lower():
                     logger.info("✅ Successfully logged in")
@@ -150,7 +138,7 @@ class InPlayFootballScraper:
             logger.error(f"❌ Login failed: {e}")
             return False
 
-    def get_fulltime_page(self) -> Optional[BeautifulSoup]:
+    def get_fulltime_page(self):
         """Get the full-time page content"""
         try:
             logger.info("🏈 Getting full-time page...")
@@ -165,13 +153,12 @@ class InPlayFootballScraper:
             logger.error(f"❌ Failed to get full-time page: {e}")
             return None
 
-    def extract_table_data(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+    def scrape_table_data(self, soup):
         """Extract table data from the full-time page"""
         try:
-            logger.info("📊 Extracting table data...")
+            logger.info("📊 Starting table data scraping...")
             
-            # Find the Full-Time Model Raw table
-            # Try different selectors to find the table
+            # Find the table
             table = None
             table_selectors = [
                 '#fulltimemodelraw',
@@ -204,7 +191,7 @@ class InPlayFootballScraper:
                 try:
                     cells = row.find_all(['td', 'th'])
                     
-                    # Skip header rows
+                    # Skip header rows or incomplete rows
                     if not cells or len(cells) < len(self.columns):
                         continue
                     
@@ -234,14 +221,14 @@ class InPlayFootballScraper:
                     logger.warning(f"⚠️ Error processing row {row_index + 1}: {row_error}")
                     continue
             
-            logger.info(f"✅ Successfully extracted {len(scraped_data)} rows")
+            logger.info(f"✅ Successfully scraped {len(scraped_data)} rows")
             return scraped_data
             
         except Exception as e:
-            logger.error(f"❌ Table extraction failed: {e}")
+            logger.error(f"❌ Table scraping failed: {e}")
             return []
 
-    def clean_and_convert_data(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def clean_and_convert_data(self, data):
         """Clean and convert scraped data for database insertion"""
         logger.info("🧹 Cleaning and converting scraped data...")
         cleaned_data = []
@@ -252,7 +239,7 @@ class InPlayFootballScraper:
                 
                 for column, value in row.items():
                     if column == 'timeupdated' and value:
-                        # Convert datetime format: "29/08/2025, 18:44:35" -> ISO format
+                        # Convert datetime format
                         try:
                             dt = datetime.strptime(value, "%d/%m/%Y, %H:%M:%S")
                             cleaned_row[column] = dt.isoformat()
@@ -283,8 +270,8 @@ class InPlayFootballScraper:
         logger.info(f"✅ Cleaned {len(cleaned_data)} rows")
         return cleaned_data
 
-    def save_to_supabase(self, data: List[Dict[str, Any]]) -> bool:
-        """Save data to Supabase with upsert handling"""
+    def save_to_supabase(self, data):
+        """Save data to Supabase with upsert handling - same pattern as working scrapers"""
         if not data:
             logger.warning("⚠️ No data to save")
             return False
@@ -316,16 +303,16 @@ class InPlayFootballScraper:
                         date_part = time_updated
                     
                     # Check for existing record
-                    existing = self.supabase.table('inplay_football').select('id').eq('hometeam', home_team).like('timeupdated', f'{date_part}%').execute()
+                    existing = self.supabase_client.table('inplay_football').select('id').eq('hometeam', home_team).like('timeupdated', f'{date_part}%').execute()
                     
                     if existing.data:
                         # Update existing record
                         record_id = existing.data[0]['id']
-                        result = self.supabase.table('inplay_football').update(record).eq('id', record_id).execute()
+                        result = self.supabase_client.table('inplay_football').update(record).eq('id', record_id).execute()
                         logger.debug(f"🔄 Updated existing record for {home_team}")
                     else:
                         # Insert new record
-                        result = self.supabase.table('inplay_football').insert(record).execute()
+                        result = self.supabase_client.table('inplay_football').insert(record).execute()
                         logger.debug(f"➕ Inserted new record for {home_team}")
                     
                     success_count += 1
@@ -336,7 +323,8 @@ class InPlayFootballScraper:
                     continue
             
             logger.info(f"✅ Successfully processed {success_count} out of {len(data)} records")
-            logger.info(f"❌ Failed to process {error_count} records")
+            if error_count > 0:
+                logger.info(f"❌ Failed to process {error_count} records")
             
             return success_count > 0
             
@@ -344,8 +332,8 @@ class InPlayFootballScraper:
             logger.error(f"❌ Supabase save failed: {e}")
             return False
 
-    def run_scraper(self) -> bool:
-        """Main scraper execution"""
+    def run_scraper(self):
+        """Main scraper execution - same pattern as working scrapers"""
         try:
             logger.info("🚀 Starting InPlay Football scraper...")
             
@@ -362,9 +350,9 @@ class InPlayFootballScraper:
                 return False
             
             # Extract data
-            scraped_data = self.extract_table_data(soup)
+            scraped_data = self.scrape_table_data(soup)
             if not scraped_data:
-                logger.error("❌ No data extracted")
+                logger.error("❌ No data scraped")
                 return False
             
             # Clean and save data
