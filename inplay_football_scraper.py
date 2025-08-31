@@ -175,8 +175,8 @@ class InPlayFootballScraper:
                 logger.error(f"❌ Failed to find/click login button: {e}")
                 return False
             
-            # Wait for successful login - check for redirect or dashboard elements
-            time.sleep(5 if self.is_production else 3)
+            # Optimized wait for successful login
+            time.sleep(3 if self.is_production else 2)
             
             # Check if login was successful by verifying we're no longer on login page
             current_url = self.driver.current_url
@@ -238,7 +238,7 @@ class InPlayFootballScraper:
             wait = WebDriverWait(self.driver, timeout)
             wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
             
-            time.sleep(3 if self.is_production else 2)
+            time.sleep(2 if self.is_production else 1)
             logger.info("✅ Successfully navigated to full-time page")
             return True
             
@@ -282,8 +282,8 @@ class InPlayFootballScraper:
                         logger.error(f"❌ All click methods failed: {e3}")
                         return False
             
-            # Wait for content to load (longer in production for stability)
-            time.sleep(5 if self.is_production else 3)
+            # Optimized wait for content to load
+            time.sleep(3 if self.is_production else 2)
             
             logger.info("✅ Successfully clicked 'Full-Time Model Raw' tab")
             return True
@@ -307,9 +307,9 @@ class InPlayFootballScraper:
             # Wait for table to be present and visible
             table = wait.until(EC.presence_of_element_located((By.ID, "fulltimemodelraw")))
             
-            # Additional wait for table content to load
+            # Optimized wait for table content to load
             logger.info("⏳ Waiting for table content to load...")
-            time.sleep(10 if self.is_production else 5)
+            time.sleep(5 if self.is_production else 3)
             
             # Scroll to ensure all content is loaded
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
@@ -471,13 +471,13 @@ class InPlayFootballScraper:
         return cleaned_data
 
     def save_to_supabase(self, data: List[Dict]) -> bool:
-        """Save data to Supabase with upsert functionality based on date + home team"""
+        """Save data to Supabase with optimized batch upsert and cleanup functionality"""
         if not self.supabase_client:
             logger.warning("⚠️ Supabase client not configured - skipping database save")
             return False
         
         try:
-            logger.info(f"💾 Saving {len(data)} records to Supabase with upsert...")
+            logger.info(f"💾 Saving {len(data)} records to Supabase with optimized upsert...")
             
             # Clean and convert data
             clean_data = self.clean_and_convert_data(data)
@@ -499,63 +499,112 @@ class InPlayFootballScraper:
                 logger.error("❌ No valid records to save after cleaning")
                 return False
             
-            logger.info(f"📤 Processing {len(valid_data)} valid records with upsert logic...")
+            logger.info(f"📤 Processing {len(valid_data)} valid records with optimized batch upsert...")
             
-            # Process each record individually for proper upsert
+            # OPTIMIZATION: Get all existing records in one query instead of individual queries
+            existing_records = {}
+            try:
+                all_existing = self.supabase_client.table('inplay_football').select('id,hometeam,timeupdated').execute()
+                for record in all_existing.data:
+                    # Create a key for matching: hometeam + date part
+                    date_part = record['timeupdated'].split(',')[0].strip() if record['timeupdated'] else ''
+                    key = f"{record['hometeam']}_{date_part}"
+                    existing_records[key] = record['id']
+                logger.info(f"📋 Retrieved {len(existing_records)} existing records for comparison")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not retrieve existing records, falling back to individual queries: {e}")
+            
+            # Process records with optimized logic
             successful_upserts = 0
+            current_hometeams = set()  # Track current teams for cleanup
             
             for record in valid_data:
                 try:
-                    # Extract date from timeupdated for matching (raw string format)
                     timeupdated_str = record['timeupdated']
                     hometeam = record['hometeam']
+                    current_hometeams.add(hometeam)
                     
-                    # For duplicate checking, we'll extract just the date part from the raw string
-                    # Handle both US format (8/31/2025, 4:08:12 PM) and UK format (31/08/2025, 18:44:35)
-                    match_date = None
-                    if timeupdated_str:
-                        try:
-                            # Try to extract date part (before the comma)
-                            date_part = timeupdated_str.split(',')[0].strip()
-                            match_date = date_part
-                        except:
-                            match_date = timeupdated_str
+                    # Extract date part for matching
+                    match_date = timeupdated_str.split(',')[0].strip() if timeupdated_str else timeupdated_str
+                    match_key = f"{hometeam}_{match_date}"
                     
-                    # Check if record exists (same home team with same date part)
-                    existing_query = self.supabase_client.table('inplay_football').select('id').eq('hometeam', hometeam).like('timeupdated', f'{match_date}%')
-                    
-                    existing_result = existing_query.execute()
-                    
-                    if existing_result.data and len(existing_result.data) > 0:
+                    if match_key in existing_records:
                         # Update existing record
-                        existing_id = existing_result.data[0]['id']
+                        existing_id = existing_records[match_key]
                         update_result = self.supabase_client.table('inplay_football').update(record).eq('id', existing_id).execute()
                         
                         if update_result.data:
-                            logger.info(f"✅ Updated existing record for {hometeam} on {match_date}")
                             successful_upserts += 1
                         else:
-                            logger.warning(f"⚠️ Update failed for {hometeam} on {match_date}")
+                            logger.warning(f"⚠️ Update failed for {hometeam}")
                     else:
                         # Insert new record
                         insert_result = self.supabase_client.table('inplay_football').insert(record).execute()
                         
                         if insert_result.data:
-                            logger.info(f"✅ Inserted new record for {hometeam} on {match_date}")
                             successful_upserts += 1
                         else:
-                            logger.warning(f"⚠️ Insert failed for {hometeam} on {match_date}")
+                            logger.warning(f"⚠️ Insert failed for {hometeam}")
                             
                 except Exception as record_error:
                     logger.error(f"❌ Error processing record for {record.get('hometeam', 'unknown')}: {record_error}")
                     continue
             
             logger.info(f"✅ Successfully processed {successful_upserts} out of {len(valid_data)} records")
-            return successful_upserts > 0
+            
+            # CLEANUP: Remove records that are no longer in the current data
+            cleanup_success = self.cleanup_old_records(current_hometeams)
+            
+            return successful_upserts > 0 and cleanup_success
                 
         except Exception as e:
             logger.error(f"❌ Error saving to Supabase: {e}")
             logger.error(f"Error type: {type(e).__name__}")
+            return False
+
+    def cleanup_old_records(self, current_hometeams: set) -> bool:
+        """Remove records from Supabase that are no longer in the current scraped data"""
+        try:
+            logger.info("🧹 Starting cleanup of old records...")
+            
+            # Get all existing records
+            all_existing = self.supabase_client.table('inplay_football').select('id,hometeam').execute()
+            
+            if not all_existing.data:
+                logger.info("📭 No existing records to clean up")
+                return True
+            
+            # Find records to delete (not in current data)
+            records_to_delete = []
+            for record in all_existing.data:
+                if record['hometeam'] not in current_hometeams:
+                    records_to_delete.append(record['id'])
+            
+            if not records_to_delete:
+                logger.info("✅ No old records to clean up - all current")
+                return True
+            
+            logger.info(f"🗑️ Deleting {len(records_to_delete)} old records that are no longer in play...")
+            
+            # Delete old records in batches for efficiency
+            batch_size = 50
+            deleted_count = 0
+            
+            for i in range(0, len(records_to_delete), batch_size):
+                batch = records_to_delete[i:i + batch_size]
+                try:
+                    delete_result = self.supabase_client.table('inplay_football').delete().in_('id', batch).execute()
+                    if delete_result.data:
+                        deleted_count += len(delete_result.data)
+                except Exception as batch_error:
+                    logger.warning(f"⚠️ Error deleting batch: {batch_error}")
+                    continue
+            
+            logger.info(f"✅ Successfully deleted {deleted_count} old records")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error during cleanup: {e}")
             return False
 
     def run_scraper(self) -> bool:
