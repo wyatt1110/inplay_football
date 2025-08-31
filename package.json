@@ -1,31 +1,16 @@
 {
   "name": "inplay-football-scraper",
   "version": "1.0.0",
-  "description": "InPlay Football Tips scraper with continuous Railway deployment",
+  "description": "InPlay Football Tips Scraper using ScrapFly API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js",
-    "scraper": "python3 inplay_football_scraper.py",
-    "test": "echo \"No tests specified\" && exit 0"
+    "dev": "node server.js"
   },
-  "keywords": [
-    "football",
-    "scraper",
-    "railway",
-    "supabase",
-    "selenium"
-  ],
-  "author": "OddsVantage",
-  "license": "MIT",
   "engines": {
-    "node": ">=18.0.0",
-    "python": ">=3.11.0"
+    "node": ">=18.0.0"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/wyatt1110/inplay_football.git"
-  },
-  "dependencies": {},
-  "devDependencies": {}
+  "keywords": ["scraper", "football", "scrapfly"],
+  "author": "InPlay Football Scraper",
+  "license": "MIT"
 }
