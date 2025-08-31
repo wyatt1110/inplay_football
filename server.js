@@ -150,7 +150,7 @@ function runScraper() {
         const pythonCmd = process.env.RAILWAY_ENVIRONMENT ? 'python' : 'python3';
         console.log(`🐍 Using Python command: ${pythonCmd}`);
         
-        const scraper = spawn(pythonCmd, ['inplay_football_requests_scraper.py'], {
+        const scraper = spawn(pythonCmd, ['inplay_football_scraper.py'], {
             stdio: ['pipe', 'pipe', 'pipe'],
             env: { ...process.env }
         });

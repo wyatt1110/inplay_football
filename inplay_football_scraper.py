@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-InPlay Football Scraper - Production Grade
-Industry-standard web scraping with undetected Chrome and advanced stability
+InPlay Football Scraper - Railway Compatible
+Uses requests + BeautifulSoup (no browser required)
 """
 
 import os
@@ -10,22 +10,10 @@ import time
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional, Any
-import json
 
-# Industry-standard scraping libraries
-import undetected_chromedriver as uc
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import (
-    TimeoutException, 
-    NoSuchElementException, 
-    StaleElementReferenceException,
-    WebDriverException
-)
-from selenium_stealth import stealth
-
-# Data processing
+# Railway-compatible libraries (no browser required)
+import requests
+from bs4 import BeautifulSoup
 import pandas as pd
 from supabase import create_client, Client
 
@@ -39,19 +27,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class ProductionInPlayScraper:
+class InPlayFootballScraper:
     """
-    Production-grade InPlay Football scraper using industry best practices:
-    - Undetected ChromeDriver for anti-detection
-    - Selenium Stealth for fingerprint masking
-    - Robust element handling with retry mechanisms
-    - Memory-efficient batch processing
-    - Enterprise-grade error handling
+    Railway-compatible scraper using requests + BeautifulSoup
+    Uses Railway environment variables: SUPABASE_URL and SUPABASE_SERVICE_KEY
     """
     
     def __init__(self):
-        """Initialize with production configuration"""
-        self.driver: Optional[uc.Chrome] = None
+        """Initialize with Railway environment variables"""
+        self.session = requests.Session()
         self.supabase: Optional[Client] = None
         self.is_production = os.getenv('RAILWAY_ENVIRONMENT_NAME') is not None
         
@@ -63,13 +47,30 @@ class ProductionInPlayScraper:
         self.login_url = "https://inplayfootballtips.co.uk/login"
         self.fulltime_url = "https://inplayfootballtips.co.uk/full-time"
         
-        # Supabase configuration
-        self.supabase_url = os.getenv('SUPABASE_URL', 'https://gwvnmzflxttdlhrkejmy.supabase.co')
+        # Supabase configuration - using Railway environment variables
+        self.supabase_url = os.getenv('SUPABASE_URL')
         self.supabase_key = os.getenv('SUPABASE_SERVICE_KEY')
         
+        # Validate environment variables
+        if not self.supabase_url:
+            logger.error("❌ SUPABASE_URL environment variable not set")
+            sys.exit(1)
+            
         if not self.supabase_key:
             logger.error("❌ SUPABASE_SERVICE_KEY environment variable not set")
             sys.exit(1)
+        
+        logger.info(f"🔧 Using Supabase URL: {self.supabase_url}")
+        
+        # Setup session headers to mimic real browser
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        })
         
         # Table columns (exact lowercase names from PostgreSQL)
         self.columns = [
@@ -84,65 +85,7 @@ class ProductionInPlayScraper:
             'analysis'
         ]
         
-        logger.info(f"🏈 Production InPlay Football Scraper initialized - Production: {self.is_production}")
-
-    def setup_driver(self) -> None:
-        """Setup undetected ChromeDriver with production configuration"""
-        try:
-            logger.info("🔧 Setting up undetected ChromeDriver...")
-            
-            # Production Chrome options
-            options = uc.ChromeOptions()
-            
-            if self.is_production:
-                # Railway production configuration
-                options.add_argument("--headless")
-                options.add_argument("--no-sandbox")
-                options.add_argument("--disable-dev-shm-usage")
-                options.add_argument("--disable-gpu")
-                options.add_argument("--disable-web-security")
-                options.add_argument("--disable-features=VizDisplayCompositor")
-                options.add_argument("--window-size=1920,1080")
-                options.add_argument("--disable-extensions")
-                options.add_argument("--disable-plugins")
-                options.add_argument("--disable-images")  # Speed optimization
-                options.add_argument("--disable-javascript")  # We don't need JS for table scraping
-                
-                # Memory optimization for 32GB container
-                options.add_argument("--memory-pressure-off")
-                options.add_argument("--max_old_space_size=8192")  # Use 8GB of available memory
-                
-                # Set binary path for Railway
-                options.binary_location = "/usr/bin/chromium-browser"
-            
-            # Initialize undetected ChromeDriver
-            self.driver = uc.Chrome(
-                options=options,
-                version_main=None,  # Auto-detect Chrome version
-                driver_executable_path="/usr/bin/chromedriver" if self.is_production else None
-            )
-            
-            # Apply selenium-stealth for anti-detection
-            stealth(
-                self.driver,
-                languages=["en-US", "en"],
-                vendor="Google Inc.",
-                platform="Linux",
-                webgl_vendor="Intel Inc.",
-                renderer="Intel Iris OpenGL Engine",
-                fix_hairline=True,
-            )
-            
-            # Set production timeouts
-            self.driver.implicitly_wait(20)
-            self.driver.set_page_load_timeout(180)
-            self.driver.set_script_timeout(120)
-            
-            logger.info("✅ Undetected ChromeDriver setup complete with stealth mode")
-            
-        except Exception as e:
-            logger.error(f"❌ ChromeDriver setup failed: {e}")
-            raise
+        logger.info(f"🏈 InPlay Football Scraper initialized - Production: {self.is_production}")
 
     def setup_supabase(self) -> None:
         """Initialize Supabase client"""
@@ -154,250 +97,149 @@ class ProductionInPlayScraper:
             logger.error(f"❌ Supabase setup failed: {e}")
             raise
 
-    def robust_element_interaction(self, locator: tuple, action: str = "click", 
-                                 text: str = None, max_retries: int = 5) -> Any:
-        """
-        Industry-standard robust element interaction with retry mechanism
-        
-        Args:
-            locator: Tuple of (By.METHOD, "selector")
-            action: "click", "send_keys", "get_text", "get_attribute"
-            text: Text to send (for send_keys action)
-            max_retries: Maximum retry attempts
-            
-        Returns:
-            Result of the action or None if failed
-        """
-        wait = WebDriverWait(self.driver, 30)
-        
-        for attempt in range(max_retries):
-            try:
-                # Wait for element to be present and interactable
-                if action == "click":
-                    element = wait.until(EC.element_to_be_clickable(locator))
-                    element.click()
-                    return True
-                    
-                elif action == "send_keys":
-                    element = wait.until(EC.presence_of_element_located(locator))
-                    element.clear()
-                    element.send_keys(text)
-                    return True
-                    
-                elif action == "get_text":
-                    element = wait.until(EC.presence_of_element_located(locator))
-                    return element.text.strip()
-                    
-                elif action == "get_attribute":
-                    element = wait.until(EC.presence_of_element_located(locator))
-                    return element.get_attribute(text)  # text parameter is attribute name
-                    
-                else:
-                    raise ValueError(f"Unknown action: {action}")
-                    
-            except (StaleElementReferenceException, TimeoutException, WebDriverException) as e:
-                if attempt < max_retries - 1:
-                    logger.warning(f"⚠️ Element interaction failed (attempt {attempt + 1}): {e}")
-                    time.sleep(2 ** attempt)  # Exponential backoff
-                    continue
-                else:
-                    logger.error(f"❌ Element interaction failed after {max_retries} attempts: {e}")
-                    raise
-                    
-        return None
-
     def login(self) -> bool:
-        """Login with robust error handling"""
+        """Login using requests session"""
         try:
             logger.info("🔐 Logging into InPlay Football Tips...")
-            self.driver.get(self.login_url)
             
-            # Wait for page load
-            time.sleep(3)
+            # Get login page to extract any CSRF tokens or form data
+            login_page = self.session.get(self.login_url, timeout=30)
+            login_page.raise_for_status()
             
-            # Enter credentials with robust interaction
-            self.robust_element_interaction((By.NAME, "username"), "send_keys", self.username)
-            self.robust_element_interaction((By.NAME, "password"), "send_keys", self.password)
+            soup = BeautifulSoup(login_page.content, 'html.parser')
             
-            # Click login button
-            self.robust_element_interaction((By.CSS_SELECTOR, "input[type='submit'], button[type='submit']"), "click")
+            # Find login form
+            form = soup.find('form')
+            if not form:
+                logger.error("❌ Could not find login form")
+                return False
             
-            # Wait for login to complete
-            time.sleep(5)
+            # Prepare login data
+            login_data = {
+                'username': self.username,
+                'password': self.password
+            }
             
-            # Verify login success
-            current_url = self.driver.current_url
-            if "login" not in current_url.lower():
+            # Extract any hidden fields (CSRF tokens, etc.)
+            hidden_inputs = form.find_all('input', type='hidden')
+            for hidden in hidden_inputs:
+                name = hidden.get('name')
+                value = hidden.get('value', '')
+                if name:
+                    login_data[name] = value
+            
+            # Submit login form
+            login_response = self.session.post(self.login_url, data=login_data, timeout=30)
+            login_response.raise_for_status()
+            
+            # Check if login was successful (redirect or no login form on response)
+            if 'login' not in login_response.url.lower() or 'dashboard' in login_response.url.lower():
                 logger.info("✅ Successfully logged in")
                 return True
             else:
-                logger.error("❌ Login failed - still on login page")
-                return False
+                # Check response content for success indicators
+                soup = BeautifulSoup(login_response.content, 'html.parser')
+                if not soup.find('form') or 'welcome' in soup.get_text().lower():
+                    logger.info("✅ Successfully logged in")
+                    return True
+                else:
+                    logger.error("❌ Login failed - still on login page")
+                    return False
                 
         except Exception as e:
             logger.error(f"❌ Login failed: {e}")
             return False
 
-    def navigate_to_fulltime_page(self) -> bool:
-        """Navigate to full-time page"""
+    def get_fulltime_page(self) -> Optional[BeautifulSoup]:
+        """Get the full-time page content"""
         try:
-            logger.info("🏈 Navigating to full-time page...")
-            self.driver.get(self.fulltime_url)
-            time.sleep(3)
-            logger.info("✅ Successfully navigated to full-time page")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Navigation failed: {e}")
-            return False
-
-    def click_fulltime_raw_tab(self) -> bool:
-        """Click the Full-Time Model Raw tab with robust handling"""
-        try:
-            logger.info("🎯 Clicking 'Full-Time Model Raw' tab...")
+            logger.info("🏈 Getting full-time page...")
+            response = self.session.get(self.fulltime_url, timeout=30)
+            response.raise_for_status()
             
-            # Multiple selectors to try
-            selectors = [
-                (By.ID, "two-tab"),
-                (By.CSS_SELECTOR, "label[for='two']"),
-                (By.XPATH, "//label[contains(text(), 'Full-Time Model Raw')]"),
-                (By.CSS_SELECTOR, "label.tab[id='two-tab']")
+            soup = BeautifulSoup(response.content, 'html.parser')
+            logger.info("✅ Successfully retrieved full-time page")
+            return soup
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get full-time page: {e}")
+            return None
+
+    def extract_table_data(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+        """Extract table data from the full-time page"""
+        try:
+            logger.info("📊 Extracting table data...")
+            
+            # Find the Full-Time Model Raw table
+            # Try different selectors to find the table
+            table = None
+            table_selectors = [
+                '#fulltimemodelraw',
+                'table#fulltimemodelraw',
+                '.tab-content table',
+                'table'
             ]
             
-            for selector in selectors:
-                try:
-                    success = self.robust_element_interaction(selector, "click")
-                    if success:
-                        time.sleep(3)  # Wait for tab content to load
-                        logger.info("✅ Successfully clicked 'Full-Time Model Raw' tab")
-                        return True
-                except Exception:
-                    continue
+            for selector in table_selectors:
+                table = soup.select_one(selector)
+                if table:
+                    logger.info(f"✅ Found table with selector: {selector}")
+                    break
             
-            logger.error("❌ Failed to click Full-Time Model Raw tab with all selectors")
-            return False
-            
-        except Exception as e:
-            logger.error(f"❌ Tab click failed: {e}")
-            return False
-
-    def scrape_table_data_robust(self) -> List[Dict[str, Any]]:
-        """
-        Industry-standard table scraping with robust element handling
-        """
-        logger.info("📊 Starting robust table data scraping...")
-        scraped_data = []
-        
-        try:
-            # Wait for table to be present
-            wait = WebDriverWait(self.driver, 60)
-            table = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#fulltimemodelraw")))
-            
-            # Wait for table rows to load
-            rows_locator = (By.CSS_SELECTOR, "#fulltimemodelraw tbody tr")
-            wait.until(lambda driver: len(driver.find_elements(*rows_locator)) > 0)
-            
-            # Get all rows
-            rows = self.driver.find_elements(*rows_locator)
-            total_rows = len(rows)
-            logger.info(f"📋 Found {total_rows} rows to process")
-            
-            if total_rows == 0:
-                logger.warning("⚠️ No rows found in table")
+            if not table:
+                logger.error("❌ Could not find table")
                 return []
             
-            # Process in batches for memory efficiency
-            batch_size = 5  # Smaller batches for stability
+            # Extract table rows
+            rows = table.find('tbody')
+            if not rows:
+                rows = table
             
-            for batch_start in range(0, total_rows, batch_size):
-                batch_end = min(batch_start + batch_size, total_rows)
-                logger.info(f"🔄 Processing batch {batch_start + 1}-{batch_end} of {total_rows} rows...")
-                
-                for row_index in range(batch_start, batch_end):
-                    try:
-                        # Re-fetch rows for this iteration to avoid stale references
-                        current_rows = self.driver.find_elements(*rows_locator)
-                        
-                        if row_index >= len(current_rows):
-                            logger.warning(f"⚠️ Row {row_index + 1} no longer available")
-                            continue
-                        
-                        row = current_rows[row_index]
-                        cells = row.find_elements(By.TAG_NAME, "td")
-                        
-                        if len(cells) != len(self.columns):
-                            logger.warning(f"⚠️ Row {row_index + 1}: Expected {len(self.columns)} columns, found {len(cells)}")
-                            continue
-                        
-                        # Extract data with robust cell handling
-                        row_data = {}
-                        for col_index, (column, cell) in enumerate(zip(self.columns, cells)):
-                            try:
-                                # Robust cell text extraction
-                                cell_text = self.extract_cell_text_robust(cell, row_index + 1, col_index + 1)
-                                row_data[column] = cell_text
-                            except Exception as cell_error:
-                                logger.warning(f"⚠️ Error reading cell {col_index + 1} in row {row_index + 1}: {cell_error}")
-                                row_data[column] = None
-                        
-                        scraped_data.append(row_data)
-                        
-                        # Progress logging
-                        if (row_index + 1) % 10 == 0:
-                            logger.info(f"📈 Processed {row_index + 1} rows so far...")
-                        
-                    except Exception as row_error:
-                        logger.warning(f"⚠️ Error processing row {row_index + 1}: {row_error}")
+            data_rows = rows.find_all('tr')
+            logger.info(f"📋 Found {len(data_rows)} rows")
+            
+            scraped_data = []
+            
+            for row_index, row in enumerate(data_rows):
+                try:
+                    cells = row.find_all(['td', 'th'])
+                    
+                    # Skip header rows
+                    if not cells or len(cells) < len(self.columns):
                         continue
-                
-                # Memory cleanup between batches
-                if batch_end < total_rows:
-                    logger.debug(f"🧹 Batch {batch_start + 1}-{batch_end} complete, brief pause...")
-                    time.sleep(1)
+                    
+                    # Extract cell data
+                    row_data = {}
+                    for col_index, (column, cell) in enumerate(zip(self.columns, cells)):
+                        try:
+                            cell_text = cell.get_text(strip=True)
+                            
+                            # Handle empty cells
+                            if cell_text == '' or cell_text == '-':
+                                cell_text = None
+                            
+                            row_data[column] = cell_text
+                            
+                        except Exception as cell_error:
+                            logger.warning(f"⚠️ Error reading cell {col_index + 1} in row {row_index + 1}: {cell_error}")
+                            row_data[column] = None
+                    
+                    scraped_data.append(row_data)
+                    
+                    # Progress logging
+                    if (row_index + 1) % 10 == 0:
+                        logger.info(f"📈 Processed {row_index + 1} rows so far...")
+                    
+                except Exception as row_error:
+                    logger.warning(f"⚠️ Error processing row {row_index + 1}: {row_error}")
+                    continue
             
-            logger.info(f"✅ Successfully scraped {len(scraped_data)} rows")
+            logger.info(f"✅ Successfully extracted {len(scraped_data)} rows")
             return scraped_data
             
         except Exception as e:
-            logger.error(f"❌ Table scraping failed: {e}")
+            logger.error(f"❌ Table extraction failed: {e}")
             return []
-
-    def extract_cell_text_robust(self, cell, row_num: int, col_num: int, max_retries: int = 3) -> Optional[str]:
-        """
-        Robust cell text extraction with retry mechanism
-        """
-        for attempt in range(max_retries):
-            try:
-                text = cell.text.strip()
-                
-                # Handle empty cells
-                if text == '' or text == '-' or text is None:
-                    return None
-                
-                return text
-                
-            except StaleElementReferenceException:
-                if attempt < max_retries - 1:
-                    logger.debug(f"🔄 Stale element in cell {col_num}, row {row_num}, retry {attempt + 1}")
-                    time.sleep(0.5)
-                    
-                    # Re-find the cell
-                    try:
-                        rows = self.driver.find_elements(By.CSS_SELECTOR, "#fulltimemodelraw tbody tr")
-                        if row_num - 1 < len(rows):
-                            cells = rows[row_num - 1].find_elements(By.TAG_NAME, "td")
-                            if col_num - 1 < len(cells):
-                                cell = cells[col_num - 1]
-                                continue
-                    except Exception:
-                        pass
-                else:
-                    logger.warning(f"⚠️ Persistent stale element in cell {col_num}, row {row_num}")
-                    return None
-            except Exception as e:
-                logger.warning(f"⚠️ Unexpected error extracting cell text: {e}")
-                return None
-        
-        return None
 
     def clean_and_convert_data(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Clean and convert scraped data for database insertion"""
@@ -441,10 +283,8 @@ class ProductionInPlayScraper:
         logger.info(f"✅ Cleaned {len(cleaned_data)} rows")
         return cleaned_data
 
-    def save_to_supabase_robust(self, data: List[Dict[str, Any]]) -> bool:
-        """
-        Save data to Supabase with robust upsert handling
-        """
+    def save_to_supabase(self, data: List[Dict[str, Any]]) -> bool:
+        """Save data to Supabase with upsert handling"""
         if not data:
             logger.warning("⚠️ No data to save")
             return False
@@ -505,35 +345,31 @@ class ProductionInPlayScraper:
             return False
 
     def run_scraper(self) -> bool:
-        """
-        Main scraper execution with comprehensive error handling
-        """
+        """Main scraper execution"""
         try:
             logger.info("🚀 Starting InPlay Football scraper...")
             
             # Setup components
-            self.setup_driver()
             self.setup_supabase()
             
             # Execute scraping workflow
             if not self.login():
                 return False
             
-            if not self.navigate_to_fulltime_page():
+            # Get page content
+            soup = self.get_fulltime_page()
+            if not soup:
                 return False
             
-            if not self.click_fulltime_raw_tab():
-                return False
-            
-            # Scrape data
-            scraped_data = self.scrape_table_data_robust()
+            # Extract data
+            scraped_data = self.extract_table_data(soup)
             if not scraped_data:
-                logger.error("❌ No data scraped")
+                logger.error("❌ No data extracted")
                 return False
             
             # Clean and save data
             cleaned_data = self.clean_and_convert_data(scraped_data)
-            success = self.save_to_supabase_robust(cleaned_data)
+            success = self.save_to_supabase(cleaned_data)
             
             if success:
                 logger.info("🎉 Scraper completed successfully!")
@@ -545,19 +381,10 @@ class ProductionInPlayScraper:
         except Exception as e:
             logger.error(f"💥 Scraper execution failed: {e}")
             return False
-        
-        finally:
-            # Cleanup
-            if self.driver:
-                try:
-                    self.driver.quit()
-                    logger.info("🧹 ChromeDriver cleaned up")
-                except Exception:
-                    pass
 
 def main():
     """Main execution function"""
-    scraper = ProductionInPlayScraper()
+    scraper = InPlayFootballScraper()
     success = scraper.run_scraper()
     
     if success:
