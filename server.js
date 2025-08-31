@@ -16,7 +16,7 @@ const server = http.createServer((req, res) => {
         }));
     } else {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('InPlay Football Scraper - ScrapFly Version\n');
+        res.end('InPlay Football Scraper - Continuous Mode\n');
     }
 });
 
@@ -63,33 +63,34 @@ function runScraper() {
             }
         }
 
-        // Schedule next run after 5 minutes
-        setTimeout(runScraper, 5 * 60 * 1000);
+        // Schedule next run immediately after completion (continuous mode)
+        console.log('🔄 Scheduling next run immediately...');
+        setTimeout(runScraper, 1000); // 1 second delay to prevent overlap
     });
 
     scraper.on('error', (error) => {
         isRunning = false;
         console.error(`❌ Scraper error: ${error.message}`);
         
-        // Retry after 2 minutes on error
-        setTimeout(runScraper, 2 * 60 * 1000);
+        // Retry after 30 seconds on error (faster recovery)
+        setTimeout(runScraper, 30 * 1000);
     });
 }
 
 // Start server
 server.listen(PORT, '0.0.0.0', () => {
-    console.log('🚀 InPlay Football Scraper Server - ScrapFly Version');
+    console.log('🚀 InPlay Football Scraper Server - Continuous Mode');
     console.log(`📦 Node.js version: ${process.version}`);
     console.log(`🌍 Platform: ${process.platform}`);
     console.log(`🔌 Using port: ${PORT}`);
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🔗 Health check: http://0.0.0.0:${PORT}/health`);
     
-    // Start first scraper run after 30 seconds
+    // Start first scraper run after 10 seconds (faster startup)
     setTimeout(() => {
         console.log('🚀 Starting initial scraper run...');
         runScraper();
-    }, 30000);
+    }, 10000);
 });
 
 // Graceful shutdown
