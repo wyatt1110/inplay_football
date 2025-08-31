@@ -419,20 +419,30 @@ class InPlayFootballScraper:
             
             for column, value in row.items():
                 if column == 'timeupdated':
-                    # Handle timestamp conversion with specific format: 29/08/2025, 18:44:35
+                    # Handle timestamp conversion - support multiple formats
                     if value and value.strip():
                         try:
-                            # Parse datetime and convert to ISO string for Supabase
+                            # Try UK format first: 29/08/2025, 18:44:35
                             dt_obj = datetime.strptime(value.strip(), "%d/%m/%Y, %H:%M:%S")
                             cleaned_row[column] = dt_obj.isoformat()
                         except ValueError:
                             try:
-                                # Try alternative format without seconds
+                                # Try UK format without seconds: 29/08/2025, 18:44
                                 dt_obj = datetime.strptime(value.strip(), "%d/%m/%Y, %H:%M")
                                 cleaned_row[column] = dt_obj.isoformat()
                             except ValueError:
-                                logger.warning(f"Could not parse TimeUpdated: {value}")
-                                cleaned_row[column] = None
+                                try:
+                                    # Try US format with AM/PM: 8/31/2025, 11:24:00 AM
+                                    dt_obj = datetime.strptime(value.strip(), "%m/%d/%Y, %I:%M:%S %p")
+                                    cleaned_row[column] = dt_obj.isoformat()
+                                except ValueError:
+                                    try:
+                                        # Try US format without seconds: 8/31/2025, 11:24 AM
+                                        dt_obj = datetime.strptime(value.strip(), "%m/%d/%Y, %I:%M %p")
+                                        cleaned_row[column] = dt_obj.isoformat()
+                                    except ValueError:
+                                        logger.warning(f"Could not parse TimeUpdated: {value}")
+                                        cleaned_row[column] = None
                     else:
                         cleaned_row[column] = None
                         
